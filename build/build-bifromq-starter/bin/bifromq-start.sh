@@ -138,8 +138,8 @@ if [ -z "$JAVA_MAJOR_VERSION" ]; then
   exit 1
 fi
 
-if [[ $(expr $JAVA_MAJOR_VERSION) -lt 17 ]]; then
-  echo "Too old Java version $JAVA_VERSION, at least Java 17 is required"
+if [[ $(expr $JAVA_MAJOR_VERSION) -lt 25 ]]; then
+  echo "Too old Java version $JAVA_VERSION, at least Java 25 is required"
   exit 1
 fi
 

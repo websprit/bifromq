@@ -1,0 +1,144 @@
+# -- Number of BifroMQ replicas (cluster nodes)
+replicaCount: 3
+
+image:
+  # -- Docker image repository
+  repository: apache-bifromq
+  # -- Docker image tag (defaults to Chart appVersion)
+  tag: ""
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+# -- Pod-level annotations
+podAnnotations: {}
+
+# -- Pod-level security context (empty by default; the Dockerfile sets USER internally)
+podSecurityContext: {}
+
+# -- Container-level security context
+securityContext: {}
+
+# ============================================================
+# BifroMQ Cluster Configuration
+# ============================================================
+clusterConfig:
+  # -- Cluster environment name. Nodes with the same env can communicate.
+  env: "Production"
+  # -- Cluster communication port (used for membership protocol)
+  port: 8899
+
+# ============================================================
+# MQTT Service Configuration
+# ============================================================
+mqtt:
+  # -- MQTT TCP listener port
+  tcpPort: 1883
+  # -- Enable MQTT over TLS
+  tlsEnabled: false
+  # -- MQTT TLS listener port
+  tlsPort: 1884
+  # -- Enable MQTT over WebSocket
+  wsEnabled: true
+  # -- MQTT WebSocket listener port
+  wsPort: 8080
+  # -- WebSocket path
+  wsPath: "/mqtt"
+
+# ============================================================
+# API Server Configuration
+# ============================================================
+apiServer:
+  # -- Enable the HTTP API server
+  enabled: true
+  # -- HTTP API port
+  port: 8091
+
+# ============================================================
+# Client-facing Service
+# ============================================================
+service:
+  # -- Service type: ClusterIP, NodePort, or LoadBalancer
+  type: ClusterIP
+  # -- Annotations for the service (e.g. for cloud LB config)
+  annotations: {}
+  # -- External IPs to bind the service to (e.g. a node IP for direct access)
+  externalIPs: []
+  #  - 192.168.75.186
+
+# ============================================================
+# JVM Configuration
+# ============================================================
+jvm:
+  # -- JVM heap options. Leave empty to use the built-in auto-calculation.
+  heapOpts: ""
+  # -- JVM GC options. Leave empty to use defaults (ZGC).
+  gcOpts: ""
+  # -- Extra JVM options
+  extraOpts: "-XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders"
+  # -- Memory limit override for JVM auto-calculation (in bytes).
+  #    If empty, the container memory limit is used.
+  memLimit: ""
+
+# ============================================================
+# Persistence (RocksDB data directory)
+# ============================================================
+persistence:
+  # -- Enable persistent storage via PVC
+  enabled: true
+  # -- Storage class name (empty = default StorageClass)
+  storageClass: ""
+  # -- PVC access modes
+  accessModes:
+    - ReadWriteOnce
+  # -- Volume size for each node's data
+  size: 10Gi
+  # -- Annotations for PVCs
+  annotations: {}
+
+# ============================================================
+# Resource Requests & Limits
+# ============================================================
+resources:
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+  limits:
+    cpu: "2"
+    memory: "4Gi"
+
+# ============================================================
+# Node Scheduling
+# ============================================================
+# -- Node selector labels
+nodeSelector: {}
+# -- Tolerations
+tolerations: []
+# -- Affinity rules
+affinity: {}
+
+# ============================================================
+# Extra environment variables
+# ============================================================
+# -- Additional environment variables for the BifroMQ container
+extraEnv: []
+#  - name: MY_VAR
+#    value: "my-value"
+
+# ============================================================
+# BifroMQ Plugin Configuration
+# ============================================================
+plugin:
+  # -- Auth provider fully-qualified class name
+  authProviderFQN: ""
+  # -- Resource throttler fully-qualified class name
+  resourceThrottlerFQN: ""
+  # -- Setting provider fully-qualified class name
+  settingProviderFQN: ""

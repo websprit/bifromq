@@ -32,18 +32,15 @@ RUN cd /tmp/release \
     && mkdir /bifromq \
     && tar -zxvf apache-bifromq-*.tar.gz --strip-components 1 -C /bifromq
 
-FROM debian@sha256:b4aa902587c2e61ce789849cb54c332b0400fe27b1ee33af4669e1f7e7c3e22f
+FROM eclipse-temurin:25-jre
 
 ARG TARGETARCH
 
-RUN groupadd -r -g 1000 bifromq \
-    && useradd -r -m -u 1000 -g bifromq bifromq \
+RUN groupadd -r bifromq || true \
+    && useradd -r -m -g bifromq bifromq \
     && apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates net-tools lsof netcat-openbsd procps less openjdk-17-jre-headless \
+    && apt-get install -y --no-install-recommends ca-certificates net-tools lsof netcat-openbsd procps less \
     && rm -rf /var/lib/apt/lists/*
-
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-$TARGETARCH
-ENV PATH=$JAVA_HOME/bin:$PATH
 
 COPY --chown=bifromq:bifromq --from=verifier /bifromq /home/bifromq/
 

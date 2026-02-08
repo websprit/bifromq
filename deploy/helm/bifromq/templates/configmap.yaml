@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bifromq.fullname" . }}-config
+  labels:
+    {{- include "bifromq.labels" . | nindent 4 }}
+data:
+  standalone.yml: |
+    {{- if .Values.plugin.authProviderFQN }}
+    authProviderFQN: {{ .Values.plugin.authProviderFQN | quote }}
+    {{- end }}
+    {{- if .Values.plugin.resourceThrottlerFQN }}
+    resourceThrottlerFQN: {{ .Values.plugin.resourceThrottlerFQN | quote }}
+    {{- end }}
+    {{- if .Values.plugin.settingProviderFQN }}
+    settingProviderFQN: {{ .Values.plugin.settingProviderFQN | quote }}
+    {{- end }}
+
+    mqttServiceConfig:
+      server:
+        tcpListener:
+          port: {{ .Values.mqtt.tcpPort }}
+        {{- if .Values.mqtt.tlsEnabled }}
+        tlsListener:
+          enable: true
+          port: {{ .Values.mqtt.tlsPort }}
+        {{- end }}
+        {{- if .Values.mqtt.wsEnabled }}
+        wsListener:
+          enable: true
+          port: {{ .Values.mqtt.wsPort }}
+          wsPath: {{ .Values.mqtt.wsPath | quote }}
+        {{- end }}
+
+    {{- if .Values.apiServer.enabled }}
+    apiServerConfig:
+      enable: true
+      httpPort: {{ .Values.apiServer.port }}
+    {{- end }}
+
+    clusterConfig:
+      env: {{ .Values.clusterConfig.env | quote }}
+      port: {{ .Values.clusterConfig.port }}
+      clusterDomainName: {{ include "bifromq.headlessServiceFQDN" . | quote }}

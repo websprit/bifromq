@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bifromq.fullname" . }}-headless
+  labels:
+    {{- include "bifromq.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "bifromq.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: mqtt-tcp
+      port: {{ .Values.mqtt.tcpPort }}
+      targetPort: mqtt-tcp
+      protocol: TCP
+    {{- if .Values.mqtt.tlsEnabled }}
+    - name: mqtt-tls
+      port: {{ .Values.mqtt.tlsPort }}
+      targetPort: mqtt-tls
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.mqtt.wsEnabled }}
+    - name: mqtt-ws
+      port: {{ .Values.mqtt.wsPort }}
+      targetPort: mqtt-ws
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.apiServer.enabled }}
+    - name: http-api
+      port: {{ .Values.apiServer.port }}
+      targetPort: http-api
+      protocol: TCP
+    {{- end }}
+    - name: cluster
+      port: {{ .Values.clusterConfig.port }}
+      targetPort: cluster
+      protocol: TCP

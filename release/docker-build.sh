@@ -84,6 +84,7 @@ if [[ -z "$target_arch" ]]; then
 fi
 
 docker build -f "$dockerfile" \
+  --platform "linux/$target_arch" \
   --build-arg BIFROMQ_VERSION="$version" \
   --build-arg TARGETARCH="$target_arch" \
   -t "$tag" \

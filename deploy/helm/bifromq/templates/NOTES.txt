@@ -1,0 +1,23 @@
+Apache BifroMQ has been deployed with {{ .Values.replicaCount }} node(s).
+
+=== Cluster Info ===
+  Namespace:    {{ .Release.Namespace }}
+  Release:      {{ .Release.Name }}
+  Replicas:     {{ .Values.replicaCount }}
+
+=== MQTT Access ===
+{{- if eq .Values.service.type "LoadBalancer" }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+  kubectl get svc {{ include "bifromq.fullname" . }} -n {{ .Release.Namespace }} -w
+{{- else if eq .Values.service.type "NodePort" }}
+  export NODE_PORT=$(kubectl get svc {{ include "bifromq.fullname" . }} -n {{ .Release.Namespace }} -o jsonpath='{.spec.ports[?(@.name=="mqtt-tcp")].nodePort}')
+  export NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+  echo "MQTT: mqtt://$NODE_IP:$NODE_PORT"
+{{- else }}
+  kubectl port-forward svc/{{ include "bifromq.fullname" . }} {{ .Values.mqtt.tcpPort }}:{{ .Values.mqtt.tcpPort }} -n {{ .Release.Namespace }}
+  echo "MQTT: mqtt://127.0.0.1:{{ .Values.mqtt.tcpPort }}"
+{{- end }}
+
+=== Verify Cluster ===
+  kubectl get pods -l "{{ include "bifromq.selectorLabels" . | replace ": " "=" | replace "\n" "," }}" -n {{ .Release.Namespace }}
+  kubectl logs {{ include "bifromq.fullname" . }}-0 -n {{ .Release.Namespace }} | grep -i cluster

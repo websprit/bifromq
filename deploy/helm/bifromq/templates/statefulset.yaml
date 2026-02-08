@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "bifromq.fullname" . }}
+  labels:
+    {{- include "bifromq.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "bifromq.fullname" . }}-headless
+  replicas: {{ .Values.replicaCount }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "bifromq.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "bifromq.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: bifromq
+          image: {{ include "bifromq.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: mqtt-tcp
+              containerPort: {{ .Values.mqtt.tcpPort }}
+              protocol: TCP
+            {{- if .Values.mqtt.tlsEnabled }}
+            - name: mqtt-tls
+              containerPort: {{ .Values.mqtt.tlsPort }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.mqtt.wsEnabled }}
+            - name: mqtt-ws
+              containerPort: {{ .Values.mqtt.wsPort }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.apiServer.enabled }}
+            - name: http-api
+              containerPort: {{ .Values.apiServer.port }}
+              protocol: TCP
+            {{- end }}
+            - name: cluster
+              containerPort: {{ .Values.clusterConfig.port }}
+              protocol: TCP
+          env:
+            - name: MEM_LIMIT
+            {{- if .Values.jvm.memLimit }}
+              value: {{ .Values.jvm.memLimit | quote }}
+            {{- else }}
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+            {{- end }}
+            {{- if .Values.jvm.heapOpts }}
+            - name: JVM_HEAP_OPTS
+              value: {{ .Values.jvm.heapOpts | quote }}
+            {{- end }}
+            {{- if .Values.jvm.gcOpts }}
+            - name: JVM_GC_OPTS
+              value: {{ .Values.jvm.gcOpts | quote }}
+            {{- end }}
+            {{- if .Values.jvm.extraOpts }}
+            - name: EXTRA_JVM_OPTS
+              value: {{ .Values.jvm.extraOpts | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: mqtt-tcp
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: mqtt-tcp
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /home/bifromq/conf/standalone.yml
+              subPath: standalone.yml
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /home/bifromq/data
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "bifromq.fullname" . }}-config
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}
