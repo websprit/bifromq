@@ -38,6 +38,8 @@ import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.Tot
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientSubscriptions;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalTransientUnsubscribePerSecond;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.Sets;
 import io.micrometer.core.instrument.Timer;
 import io.netty.channel.ChannelHandlerContext;
@@ -55,6 +57,7 @@ import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.extern.slf4j.Slf4j;
@@ -95,23 +98,27 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
     private final Map<String, TopicFilterOption> topicFilters = new ConcurrentHashMap<>();
     private final NavigableMap<Long, RoutedMessage> inbox = new TreeMap<>();
     private final DedupCache dedupCache = new DedupCache(
-        2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(),
-        MaxActiveDedupChannels.INSTANCE.get(),
-        MaxActiveDedupTopicsPerChannel.INSTANCE.get()
-    );
+            2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(),
+            MaxActiveDedupChannels.INSTANCE.get(),
+            MaxActiveDedupTopicsPerChannel.INSTANCE.get());
     private long nextSendSeq = 0;
     private long msgSeqNo = 0;
     private AtomicLong subNumGauge;
+    private final Cache<String, CompletableFuture<CheckResult>> authCache;
 
     protected MQTTTransientSessionHandler(TenantSettings settings,
-                                          ITenantMeter tenantMeter,
-                                          Condition oomCondition,
-                                          String userSessionId,
-                                          int keepAliveTimeSeconds,
-                                          ClientInfo clientInfo,
-                                          LWT willMessage, // nullable
-                                          ChannelHandlerContext ctx) {
+            ITenantMeter tenantMeter,
+            Condition oomCondition,
+            String userSessionId,
+            int keepAliveTimeSeconds,
+            ClientInfo clientInfo,
+            LWT willMessage, // nullable
+            ChannelHandlerContext ctx) {
         super(settings, tenantMeter, oomCondition, userSessionId, keepAliveTimeSeconds, clientInfo, willMessage, ctx);
+        this.authCache = Caffeine.newBuilder()
+                .expireAfterWrite(30, TimeUnit.SECONDS)
+                .maximumSize(1000)
+                .build();
     }
 
     @Override
@@ -133,24 +140,24 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             memUsage.addAndGet(-msg.estBytes());
             if (msg.qos() == QoS.AT_LEAST_ONCE) {
                 eventCollector.report(getLocal(QoS1Dropped.class)
-                    .reason(DropReason.SessionClosed)
-                    .reqId(msg.message().getMessageId())
-                    .isRetain(msg.isRetain())
-                    .sender(msg.publisher())
-                    .topic(msg.topic())
-                    .matchedFilter(msg.topicFilter())
-                    .size(msg.message().getPayload().size())
-                    .clientInfo(clientInfo()));
+                        .reason(DropReason.SessionClosed)
+                        .reqId(msg.message().getMessageId())
+                        .isRetain(msg.isRetain())
+                        .sender(msg.publisher())
+                        .topic(msg.topic())
+                        .matchedFilter(msg.topicFilter())
+                        .size(msg.message().getPayload().size())
+                        .clientInfo(clientInfo()));
             } else if (msg.qos() == QoS.EXACTLY_ONCE) {
                 eventCollector.report(getLocal(QoS2Dropped.class)
-                    .reason(DropReason.SessionClosed)
-                    .reqId(msg.message().getMessageId())
-                    .isRetain(msg.isRetain())
-                    .sender(msg.publisher())
-                    .topic(msg.topic())
-                    .matchedFilter(msg.topicFilter())
-                    .size(msg.message().getPayload().size())
-                    .clientInfo(clientInfo()));
+                        .reason(DropReason.SessionClosed)
+                        .reqId(msg.message().getMessageId())
+                        .isRetain(msg.isRetain())
+                        .sender(msg.publisher())
+                        .topic(msg.topic())
+                        .matchedFilter(msg.topicFilter())
+                        .size(msg.message().getPayload().size())
+                        .clientInfo(clientInfo()));
             }
         }
         // Transient session lifetime is bounded by the channel lifetime
@@ -181,19 +188,19 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
 
     @Override
     protected final CompletableFuture<IMQTTProtocolHelper.SubResult> subTopicFilter(long reqId,
-                                                                                    String topicFilter,
-                                                                                    TopicFilterOption option) {
+            String topicFilter,
+            TopicFilterOption option) {
         // check resources
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalTransientSubscriptions)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalTransientSubscriptions.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalTransientSubscriptions.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(EXCEED_LIMIT);
         }
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalTransientSubscribePerSecond)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalTransientSubscribePerSecond.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalTransientSubscribePerSecond.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(EXCEED_LIMIT);
         }
         tenantMeter.recordCount(MqttTransientSubCount);
@@ -209,50 +216,50 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         }
         Timer.Sample start = Timer.start();
         return addMatchRecord(reqId, topicFilter, option.getIncarnation())
-            .thenApplyAsync(matchResult -> {
-                switch (matchResult) {
-                    case OK -> {
-                        start.stop(tenantMeter.timer(MqttTransientSubLatency));
-                        if (prevOption == null) {
-                            return OK;
-                        } else {
-                            return EXISTS;
+                .thenApplyAsync(matchResult -> {
+                    switch (matchResult) {
+                        case OK -> {
+                            start.stop(tenantMeter.timer(MqttTransientSubLatency));
+                            if (prevOption == null) {
+                                return OK;
+                            } else {
+                                return EXISTS;
+                            }
+                        }
+                        case EXCEED_LIMIT -> {
+                            return IMQTTProtocolHelper.SubResult.EXCEED_LIMIT;
+                        }
+                        case BACK_PRESSURE_REJECTED -> {
+                            return IMQTTProtocolHelper.SubResult.BACK_PRESSURE_REJECTED;
+                        }
+                        case TRY_LATER -> {
+                            return IMQTTProtocolHelper.SubResult.TRY_LATER;
+                        }
+                        default -> {
+                            return IMQTTProtocolHelper.SubResult.ERROR;
                         }
                     }
-                    case EXCEED_LIMIT -> {
-                        return IMQTTProtocolHelper.SubResult.EXCEED_LIMIT;
-                    }
-                    case BACK_PRESSURE_REJECTED -> {
-                        return IMQTTProtocolHelper.SubResult.BACK_PRESSURE_REJECTED;
-                    }
-                    case TRY_LATER -> {
-                        return IMQTTProtocolHelper.SubResult.TRY_LATER;
-                    }
-                    default -> {
-                        return IMQTTProtocolHelper.SubResult.ERROR;
-                    }
-                }
-            }, ctx.executor());
+                }, ctx.executor());
     }
 
     @Override
     protected CompletableFuture<MatchReply> matchRetainedMessage(long reqId,
-                                                                 String topicFilter,
-                                                                 TopicFilterOption option) {
+            String topicFilter,
+            TopicFilterOption option) {
         String tenantId = clientInfo().getTenantId();
         return sessionCtx.retainClient.match(MatchRequest.newBuilder()
-            .setReqId(reqId)
-            .setTenantId(tenantId)
-            .setMatchInfo(MatchInfo.newBuilder()
-                .setMatcher(TopicUtil.from(topicFilter))
-                // receive retain message via global channel
-                .setReceiverId(globalize(channelId()))
-                .setIncarnation(option.getIncarnation())
-                .build())
-            .setDelivererKey(toDelivererKey(tenantId, globalize(channelId()), sessionCtx.serverId))
-            .setBrokerId(0)
-            .setLimit(settings.retainMatchLimit)
-            .build());
+                .setReqId(reqId)
+                .setTenantId(tenantId)
+                .setMatchInfo(MatchInfo.newBuilder()
+                        .setMatcher(TopicUtil.from(topicFilter))
+                        // receive retain message via global channel
+                        .setReceiverId(globalize(channelId()))
+                        .setIncarnation(option.getIncarnation())
+                        .build())
+                .setDelivererKey(toDelivererKey(tenantId, globalize(channelId()), sessionCtx.serverId))
+                .setBrokerId(0)
+                .setLimit(settings.retainMatchLimit)
+                .build());
     }
 
     @Override
@@ -260,8 +267,8 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         // check unsub rate
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalTransientUnsubscribePerSecond)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalTransientUnsubscribePerSecond.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalTransientUnsubscribePerSecond.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(ERROR);
         }
         tenantMeter.recordCount(MqttTransientUnsubCount);
@@ -275,27 +282,27 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             memUsage.addAndGet(-option.getSerializedSize());
         }
         return removeMatchRecord(reqId, topicFilter, option.getIncarnation())
-            .handleAsync((result, e) -> {
-                if (e != null) {
-                    return ERROR;
-                } else {
-                    switch (result) {
-                        case OK -> {
-                            start.stop(tenantMeter.timer(MqttTransientUnsubLatency));
-                            return IMQTTProtocolHelper.UnsubResult.OK;
-                        }
-                        case BACK_PRESSURE_REJECTED -> {
-                            return IMQTTProtocolHelper.UnsubResult.BACK_PRESSURE_REJECTED;
-                        }
-                        case TRY_LATER -> {
-                            return IMQTTProtocolHelper.UnsubResult.TRY_LATER;
-                        }
-                        default -> {
-                            return ERROR;
+                .handleAsync((result, e) -> {
+                    if (e != null) {
+                        return ERROR;
+                    } else {
+                        switch (result) {
+                            case OK -> {
+                                start.stop(tenantMeter.timer(MqttTransientUnsubLatency));
+                                return IMQTTProtocolHelper.UnsubResult.OK;
+                            }
+                            case BACK_PRESSURE_REJECTED -> {
+                                return IMQTTProtocolHelper.UnsubResult.BACK_PRESSURE_REJECTED;
+                            }
+                            case TRY_LATER -> {
+                                return IMQTTProtocolHelper.UnsubResult.TRY_LATER;
+                            }
+                            default -> {
+                                return ERROR;
+                            }
                         }
                     }
-                }
-            }, ctx.executor());
+                }, ctx.executor());
     }
 
     @Override
@@ -315,7 +322,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
                 validTopicFilters.put(topicFilter, option);
                 if (option.getIncarnation() > topicFilter.incarnation()) {
                     log.debug("Receive message from previous route: topicFilter={}, inc={}, prevInc={}",
-                        topicFilter, option.getIncarnation(), topicFilter.incarnation());
+                            topicFilter, option.getIncarnation(), topicFilter.incarnation());
                 }
             }
         }
@@ -326,60 +333,75 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
     @Override
     public InboxState inboxState() {
         InboxState.Builder stateBuilder = InboxState.newBuilder()
-            .setCreatedAt(createdAt)
-            .setLastActiveAt(HLC.INST.getPhysical())
-            .setLimit(settings.inboxQueueLength)
-            .setExpirySeconds(0)
-            .putAllTopicFilters(topicFilters)
-            .setUndeliveredMsgCount(inbox.size());
+                .setCreatedAt(createdAt)
+                .setLastActiveAt(HLC.INST.getPhysical())
+                .setLimit(settings.inboxQueueLength)
+                .setExpirySeconds(0)
+                .putAllTopicFilters(topicFilters)
+                .setUndeliveredMsgCount(inbox.size());
         LWT lwt = willMessage();
         if (lwt != null) {
             stateBuilder.setWill(LastWillInfo.newBuilder()
-                .setTopic(lwt.getTopic())
-                .setQos(lwt.getMessage().getPubQoS())
-                .setIsRetain(lwt.getMessage().getIsRetain())
-                .setDelaySeconds(lwt.getDelaySeconds())
-                .build());
+                    .setTopic(lwt.getTopic())
+                    .setQos(lwt.getMessage().getPubQoS())
+                    .setIsRetain(lwt.getMessage().getIsRetain())
+                    .setDelaySeconds(lwt.getDelaySeconds())
+                    .build());
         }
         return stateBuilder.build();
     }
 
     private void publish(Map<MatchedTopicFilter, TopicFilterOption> matchedTopicFilters,
-                         TopicMessagePack topicMsgPack) {
-        CompletableFuture<?>[] checkPermissionFutures = new CompletableFuture[matchedTopicFilters.size()];
+            TopicMessagePack topicMsgPack) {
+        if (matchedTopicFilters.isEmpty()) {
+            return;
+        }
         List<TopicFilterAndPermission> topicFilterAndPermissions = new ArrayList<>(matchedTopicFilters.size());
-        int i = 0;
+        AtomicInteger latch = new AtomicInteger(matchedTopicFilters.size());
+        AtomicBoolean hasFailed = new AtomicBoolean(false);
+        Runnable onAllDone = () -> ctx.executor().execute(() -> {
+            for (TopicMessagePack.PublisherPack publisherPack : topicMsgPack.getMessageList()) {
+                publish(topicMsgPack.getTopic(), publisherPack.getPublisher(), publisherPack.getMessageList(),
+                        topicFilterAndPermissions);
+            }
+        });
+
         for (Map.Entry<MatchedTopicFilter, TopicFilterOption> entry : matchedTopicFilters.entrySet()) {
             MatchedTopicFilter mtf = entry.getKey();
             TopicFilterOption opt = entry.getValue();
-            CompletableFuture<CheckResult> f =
-                addFgTask(authProvider.checkPermission(clientInfo(), buildSubAction(mtf.topicFilter(), opt.getQos())));
-            checkPermissionFutures[i++] = f;
+            // Cache Key: TopicFilter + '\0' + QoS (use null char to avoid collision with
+            // MQTT '#' wildcard)
+            String key = mtf.topicFilter() + "\0" + opt.getQos().getNumber();
+            CompletableFuture<CheckResult> f = authCache.get(key, k -> addFgTask(
+                    authProvider.checkPermission(clientInfo(), buildSubAction(mtf.topicFilter(), opt.getQos()))));
             topicFilterAndPermissions.add(new TopicFilterAndPermission(mtf.topicFilter(), opt, f));
-        }
 
-        CompletableFuture.allOf(checkPermissionFutures)
-            .thenAccept(v -> {
-                for (TopicMessagePack.PublisherPack publisherPack : topicMsgPack.getMessageList()) {
-                    publish(topicMsgPack.getTopic(), publisherPack.getPublisher(), publisherPack.getMessageList(),
-                        topicFilterAndPermissions);
+            f.whenComplete((v, e) -> {
+                if (e != null) {
+                    hasFailed.set(true);
+                    authCache.invalidate(key);
+                }
+                if (latch.decrementAndGet() == 0 && !hasFailed.get()) {
+                    onAllDone.run();
                 }
             });
+        }
     }
 
     private void publish(String topic,
-                         ClientInfo publisher,
-                         List<Message> messages,
-                         List<TopicFilterAndPermission> topicFilterAndPermissions) {
+            ClientInfo publisher,
+            List<Message> messages,
+            List<TopicFilterAndPermission> topicFilterAndPermissions) {
         AtomicInteger totalMsgBytesSize = new AtomicInteger();
         long now = HLC.INST.get();
         boolean flush = false;
         for (Message message : messages) {
             // deduplicate messages based on topic and publisher
             for (TopicFilterAndPermission tfp : topicFilterAndPermissions) {
-                RoutedMessage subMsg = new RoutedMessage(topic, message, publisher, tfp.topicFilter, tfp.option, now,
-                    tfp.permissionCheckFuture.join().hasGranted(),
-                    isDuplicateMessage(topic, publisher, message, dedupCache));
+                RoutedMessage subMsg = new RoutedMessage(topic, message, publisher, tfp.topicFilter, tfp.option,
+                        now,
+                        tfp.permissionCheckFuture.join().hasGranted(),
+                        isDuplicateMessage(topic, publisher, message, dedupCache));
                 logInternalLatency(subMsg);
                 if (subMsg.qos() == QoS.AT_MOST_ONCE) {
                     sendQoS0SubMessage(subMsg);
@@ -391,23 +413,23 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
                     } else {
                         switch (subMsg.qos()) {
                             case AT_LEAST_ONCE -> eventCollector.report(getLocal(QoS1Dropped.class)
-                                .reason(DropReason.Overflow)
-                                .reqId(subMsg.message().getMessageId())
-                                .isRetain(subMsg.isRetain())
-                                .sender(subMsg.publisher())
-                                .topic(subMsg.topic())
-                                .matchedFilter(subMsg.topicFilter())
-                                .size(subMsg.message().getPayload().size())
-                                .clientInfo(clientInfo()));
+                                    .reason(DropReason.Overflow)
+                                    .reqId(subMsg.message().getMessageId())
+                                    .isRetain(subMsg.isRetain())
+                                    .sender(subMsg.publisher())
+                                    .topic(subMsg.topic())
+                                    .matchedFilter(subMsg.topicFilter())
+                                    .size(subMsg.message().getPayload().size())
+                                    .clientInfo(clientInfo()));
                             case EXACTLY_ONCE -> eventCollector.report(getLocal(QoS2Dropped.class)
-                                .reason(DropReason.Overflow)
-                                .reqId(subMsg.message().getMessageId())
-                                .isRetain(subMsg.isRetain())
-                                .sender(subMsg.publisher())
-                                .topic(subMsg.topic())
-                                .matchedFilter(subMsg.topicFilter())
-                                .size(subMsg.message().getPayload().size())
-                                .clientInfo(clientInfo()));
+                                    .reason(DropReason.Overflow)
+                                    .reqId(subMsg.message().getMessageId())
+                                    .isRetain(subMsg.isRetain())
+                                    .sender(subMsg.publisher())
+                                    .topic(subMsg.topic())
+                                    .matchedFilter(subMsg.topicFilter())
+                                    .size(subMsg.message().getPayload().size())
+                                    .clientInfo(clientInfo()));
                             default -> {
                                 // do nothing
                             }
@@ -457,7 +479,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
     }
 
     private record TopicFilterAndPermission(String topicFilter,
-                                            TopicFilterOption option,
-                                            CompletableFuture<CheckResult> permissionCheckFuture) {
+            TopicFilterOption option,
+            CompletableFuture<CheckResult> permissionCheckFuture) {
     }
 }

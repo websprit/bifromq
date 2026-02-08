@@ -39,6 +39,9 @@ import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.Tot
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalPersistentUnsubscribePerSecond;
 import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+
 import io.micrometer.core.instrument.Timer;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.mqtt.MqttMessage;
@@ -92,15 +95,13 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     private final NavigableMap<Long, StagingMessage> stagingBuffer = new TreeMap<>();
     private final IInboxClient inboxClient;
     private final DedupCache qoS0DedupCache = new DedupCache(
-        2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(),
-        MaxActiveDedupChannels.INSTANCE.get(),
-        MaxActiveDedupTopicsPerChannel.INSTANCE.get()
-    );
+            2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(),
+            MaxActiveDedupChannels.INSTANCE.get(),
+            MaxActiveDedupTopicsPerChannel.INSTANCE.get());
     private final DedupCache qoS12DedupCache = new DedupCache(
-        2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(),
-        MaxActiveDedupChannels.INSTANCE.get(),
-        MaxActiveDedupTopicsPerChannel.INSTANCE.get()
-    );
+            2 * DataPlaneMaxBurstLatencyMillis.INSTANCE.get(),
+            MaxActiveDedupChannels.INSTANCE.get(),
+            MaxActiveDedupTopicsPerChannel.INSTANCE.get());
     private boolean qos0Confirming = false;
     private boolean inboxConfirming = false;
     private long nextSendSeq = 0;
@@ -110,21 +111,26 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     private State state = State.INIT;
     private ScheduledFuture<?> confirmTimeout;
     private ScheduledFuture<?> hintTimeout;
+    private final Cache<String, CompletableFuture<org.apache.bifromq.plugin.authprovider.type.CheckResult>> authCache;
 
     protected MQTTPersistentSessionHandler(TenantSettings settings,
-                                           ITenantMeter tenantMeter,
-                                           Condition oomCondition,
-                                           String userSessionId,
-                                           int keepAliveTimeSeconds,
-                                           int sessionExpirySeconds,
-                                           ClientInfo clientInfo,
-                                           InboxVersion inboxVersion,
-                                           LWT noDelayLWT, // nullable
-                                           ChannelHandlerContext ctx) {
+            ITenantMeter tenantMeter,
+            Condition oomCondition,
+            String userSessionId,
+            int keepAliveTimeSeconds,
+            int sessionExpirySeconds,
+            ClientInfo clientInfo,
+            InboxVersion inboxVersion,
+            LWT noDelayLWT, // nullable
+            ChannelHandlerContext ctx) {
         super(settings, tenantMeter, oomCondition, userSessionId, keepAliveTimeSeconds, clientInfo, noDelayLWT, ctx);
         this.inboxVersion = inboxVersion;
         this.inboxClient = sessionCtx.inboxClient;
         this.sessionExpirySeconds = sessionExpirySeconds;
+        this.authCache = Caffeine.newBuilder()
+                .expireAfterWrite(30, TimeUnit.SECONDS)
+                .maximumSize(1000)
+                .build();
     }
 
     @Override
@@ -157,30 +163,30 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         if (inboxReader != null) {
             inboxReader.close();
         }
-        int remainInboxSize =
-            stagingBuffer.values().stream().reduce(0, (acc, msg) -> acc + msg.message.estBytes(), Integer::sum);
+        int remainInboxSize = stagingBuffer.values().stream().reduce(0, (acc, msg) -> acc + msg.message.estBytes(),
+                Integer::sum);
         if (remainInboxSize > 0) {
             memUsage.addAndGet(-remainInboxSize);
         }
         switch (state) {
             case ATTACHED -> detach(DetachRequest.newBuilder()
-                .setReqId(System.nanoTime())
-                .setInboxId(userSessionId)
-                .setVersion(inboxVersion)
-                .setExpirySeconds(sessionExpirySeconds)
-                .setDiscardLWT(false)
-                .setClient(clientInfo)
-                .setNow(HLC.INST.getPhysical())
-                .build());
+                    .setReqId(System.nanoTime())
+                    .setInboxId(userSessionId)
+                    .setVersion(inboxVersion)
+                    .setExpirySeconds(sessionExpirySeconds)
+                    .setDiscardLWT(false)
+                    .setClient(clientInfo)
+                    .setNow(HLC.INST.getPhysical())
+                    .build());
             case SERVER_SHUTTING_DOWN -> detach(DetachRequest.newBuilder()
-                .setReqId(System.nanoTime())
-                .setInboxId(userSessionId)
-                .setVersion(inboxVersion)
-                .setExpirySeconds(sessionExpirySeconds)
-                .setDiscardLWT(true)
-                .setClient(clientInfo)
-                .setNow(HLC.INST.getPhysical())
-                .build());
+                    .setReqId(System.nanoTime())
+                    .setInboxId(userSessionId)
+                    .setVersion(inboxVersion)
+                    .setExpirySeconds(sessionExpirySeconds)
+                    .setDiscardLWT(true)
+                    .setClient(clientInfo)
+                    .setNow(HLC.INST.getPhysical())
+                    .build());
             default -> {
                 // do not detach on other cases
             }
@@ -199,36 +205,36 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
             if (finalSEI == 0) {
                 // expire without triggering Will Message if any
                 detach(DetachRequest.newBuilder()
-                    .setReqId(System.nanoTime())
-                    .setInboxId(userSessionId)
-                    .setVersion(inboxVersion)
-                    .setExpirySeconds(0)
-                    .setDiscardLWT(true)
-                    .setClient(clientInfo)
-                    .setNow(HLC.INST.getPhysical())
-                    .build());
+                        .setReqId(System.nanoTime())
+                        .setInboxId(userSessionId)
+                        .setVersion(inboxVersion)
+                        .setExpirySeconds(0)
+                        .setDiscardLWT(true)
+                        .setClient(clientInfo)
+                        .setNow(HLC.INST.getPhysical())
+                        .build());
             } else {
                 // update inbox with requested SEI and discard will message
                 detach(DetachRequest.newBuilder()
+                        .setReqId(System.nanoTime())
+                        .setInboxId(userSessionId)
+                        .setVersion(inboxVersion)
+                        .setExpirySeconds(finalSEI)
+                        .setDiscardLWT(true)
+                        .setClient(clientInfo)
+                        .setNow(HLC.INST.getPhysical())
+                        .build());
+            }
+        } else if (helper().isDisconnectWithLWT(message)) {
+            detach(DetachRequest.newBuilder()
                     .setReqId(System.nanoTime())
                     .setInboxId(userSessionId)
                     .setVersion(inboxVersion)
                     .setExpirySeconds(finalSEI)
-                    .setDiscardLWT(true)
+                    .setDiscardLWT(false)
                     .setClient(clientInfo)
                     .setNow(HLC.INST.getPhysical())
                     .build());
-            }
-        } else if (helper().isDisconnectWithLWT(message)) {
-            detach(DetachRequest.newBuilder()
-                .setReqId(System.nanoTime())
-                .setInboxId(userSessionId)
-                .setVersion(inboxVersion)
-                .setExpirySeconds(finalSEI)
-                .setDiscardLWT(false)
-                .setClient(clientInfo)
-                .setNow(HLC.INST.getPhysical())
-                .build());
         }
         return ProtocolResponse.goAwayNow(getLocal(ByClient.class).clientInfo(clientInfo));
     }
@@ -239,28 +245,28 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         }
         state = State.DETACH;
         addBgTask(AsyncRetry.exec(() -> inboxClient.detach(request),
-            (reply, t) -> {
-                if (reply != null) {
-                    return reply.getCode() == DetachReply.Code.TRY_LATER;
-                }
-                return false;
-            }, sessionCtx.retryTimeoutNanos / 5, sessionCtx.retryTimeoutNanos));
+                (reply, t) -> {
+                    if (reply != null) {
+                        return reply.getCode() == DetachReply.Code.TRY_LATER;
+                    }
+                    return false;
+                }, sessionCtx.retryTimeoutNanos / 5, sessionCtx.retryTimeoutNanos));
     }
 
     @Override
     protected final CompletableFuture<IMQTTProtocolHelper.SubResult> subTopicFilter(long reqId,
-                                                                                    String topicFilter,
-                                                                                    TopicFilterOption option) {
+            String topicFilter,
+            TopicFilterOption option) {
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalPersistentSubscriptions)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalPersistentSubscriptions.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalPersistentSubscriptions.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(EXCEED_LIMIT);
         }
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalPersistentSubscribePerSecond)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalPersistentSubscribePerSecond.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalPersistentSubscribePerSecond.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(EXCEED_LIMIT);
         }
         tenantMeter.recordCount(MqttPersistentSubCount);
@@ -275,67 +281,67 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                 .setOption(option)
                 .setNow(HLC.INST.getPhysical())
                 .build())
-            .thenApplyAsync(v -> {
-                switch (v.getCode()) {
-                    case OK -> {
-                        start.stop(tenantMeter.timer(MqttPersistentSubLatency));
-                        return IMQTTProtocolHelper.SubResult.OK;
+                .thenApplyAsync(v -> {
+                    switch (v.getCode()) {
+                        case OK -> {
+                            start.stop(tenantMeter.timer(MqttPersistentSubLatency));
+                            return IMQTTProtocolHelper.SubResult.OK;
+                        }
+                        case EXISTS -> {
+                            start.stop(tenantMeter.timer(MqttPersistentSubLatency));
+                            return IMQTTProtocolHelper.SubResult.EXISTS;
+                        }
+                        case EXCEED_LIMIT -> {
+                            return IMQTTProtocolHelper.SubResult.EXCEED_LIMIT;
+                        }
+                        case NO_INBOX, CONFLICT -> {
+                            state = State.TERMINATE;
+                            handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
+                        }
+                        case BACK_PRESSURE_REJECTED -> {
+                            return IMQTTProtocolHelper.SubResult.BACK_PRESSURE_REJECTED;
+                        }
+                        case TRY_LATER -> {
+                            return IMQTTProtocolHelper.SubResult.TRY_LATER;
+                        }
+                        case ERROR -> {
+                            return IMQTTProtocolHelper.SubResult.ERROR;
+                        }
+                        default -> {
+                            // never happens
+                        }
                     }
-                    case EXISTS -> {
-                        start.stop(tenantMeter.timer(MqttPersistentSubLatency));
-                        return IMQTTProtocolHelper.SubResult.EXISTS;
-                    }
-                    case EXCEED_LIMIT -> {
-                        return IMQTTProtocolHelper.SubResult.EXCEED_LIMIT;
-                    }
-                    case NO_INBOX, CONFLICT -> {
-                        state = State.TERMINATE;
-                        handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
-                    }
-                    case BACK_PRESSURE_REJECTED -> {
-                        return IMQTTProtocolHelper.SubResult.BACK_PRESSURE_REJECTED;
-                    }
-                    case TRY_LATER -> {
-                        return IMQTTProtocolHelper.SubResult.TRY_LATER;
-                    }
-                    case ERROR -> {
-                        return IMQTTProtocolHelper.SubResult.ERROR;
-                    }
-                    default -> {
-                        // never happens
-                    }
-                }
-                return IMQTTProtocolHelper.SubResult.ERROR;
-            }, ctx.executor());
+                    return IMQTTProtocolHelper.SubResult.ERROR;
+                }, ctx.executor());
     }
 
     @Override
     protected CompletableFuture<MatchReply> matchRetainedMessage(long reqId,
-                                                                 String topicFilter,
-                                                                 TopicFilterOption option) {
+            String topicFilter,
+            TopicFilterOption option) {
         String tenantId = clientInfo().getTenantId();
         return sessionCtx.retainClient.match(MatchRequest.newBuilder()
-            .setReqId(reqId)
-            .setTenantId(tenantId)
-            .setMatchInfo(MatchInfo.newBuilder()
-                .setMatcher(TopicUtil.from(topicFilter))
-                .setReceiverId(receiverId(userSessionId, inboxVersion.getIncarnation()))
-                .setIncarnation(option.getIncarnation())
-                .build())
-            .setDelivererKey(getDelivererKey(tenantId, userSessionId))
-            .setBrokerId(inboxClient.id())
-            .setLimit(settings.retainMatchLimit)
-            .build());
+                .setReqId(reqId)
+                .setTenantId(tenantId)
+                .setMatchInfo(MatchInfo.newBuilder()
+                        .setMatcher(TopicUtil.from(topicFilter))
+                        .setReceiverId(receiverId(userSessionId, inboxVersion.getIncarnation()))
+                        .setIncarnation(option.getIncarnation())
+                        .build())
+                .setDelivererKey(getDelivererKey(tenantId, userSessionId))
+                .setBrokerId(inboxClient.id())
+                .setLimit(settings.retainMatchLimit)
+                .build());
     }
 
     @Override
     protected final CompletableFuture<IMQTTProtocolHelper.UnsubResult> unsubTopicFilter(long reqId,
-                                                                                        String topicFilter) {
+            String topicFilter) {
         // check unsub rate
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalPersistentUnsubscribePerSecond)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalPersistentUnsubscribePerSecond.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalPersistentUnsubscribePerSecond.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(ERROR);
         }
 
@@ -349,32 +355,32 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                 .setTopicFilter(topicFilter)
                 .setNow(HLC.INST.getPhysical())
                 .build())
-            .thenApplyAsync(v -> {
-                switch (v.getCode()) {
-                    case OK -> {
-                        start.stop(tenantMeter.timer(MqttPersistentUnsubLatency));
-                        return IMQTTProtocolHelper.UnsubResult.OK;
+                .thenApplyAsync(v -> {
+                    switch (v.getCode()) {
+                        case OK -> {
+                            start.stop(tenantMeter.timer(MqttPersistentUnsubLatency));
+                            return IMQTTProtocolHelper.UnsubResult.OK;
+                        }
+                        case NO_SUB -> {
+                            start.stop(tenantMeter.timer(MqttPersistentUnsubLatency));
+                            return IMQTTProtocolHelper.UnsubResult.NO_SUB;
+                        }
+                        case NO_INBOX, CONFLICT -> {
+                            state = State.TERMINATE;
+                            handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
+                            return IMQTTProtocolHelper.UnsubResult.ERROR;
+                        }
+                        case BACK_PRESSURE_REJECTED -> {
+                            return IMQTTProtocolHelper.UnsubResult.BACK_PRESSURE_REJECTED;
+                        }
+                        case TRY_LATER -> {
+                            return IMQTTProtocolHelper.UnsubResult.TRY_LATER;
+                        }
+                        default -> {
+                            return IMQTTProtocolHelper.UnsubResult.ERROR;
+                        }
                     }
-                    case NO_SUB -> {
-                        start.stop(tenantMeter.timer(MqttPersistentUnsubLatency));
-                        return IMQTTProtocolHelper.UnsubResult.NO_SUB;
-                    }
-                    case NO_INBOX, CONFLICT -> {
-                        state = State.TERMINATE;
-                        handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
-                        return IMQTTProtocolHelper.UnsubResult.ERROR;
-                    }
-                    case BACK_PRESSURE_REJECTED -> {
-                        return IMQTTProtocolHelper.UnsubResult.BACK_PRESSURE_REJECTED;
-                    }
-                    case TRY_LATER -> {
-                        return IMQTTProtocolHelper.UnsubResult.TRY_LATER;
-                    }
-                    default -> {
-                        return IMQTTProtocolHelper.UnsubResult.ERROR;
-                    }
-                }
-            }, ctx.executor());
+                }, ctx.executor());
     }
 
     private void setupInboxReader() {
@@ -383,7 +389,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
             return;
         }
         inboxReader = inboxClient.openInboxReader(clientInfo().getTenantId(), userSessionId,
-            inboxVersion.getIncarnation());
+                inboxVersion.getIncarnation());
         inboxReader.fetch(this::consume);
         inboxReader.hint(clientReceiveQuota());
         // resume channel read after inbox being setup
@@ -421,38 +427,38 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         qos0Confirming = true;
         long upToSeq = qos0ConfirmUpToSeq;
         addBgTask(inboxClient.commit(CommitRequest.newBuilder()
-            .setReqId(HLC.INST.get())
-            .setTenantId(clientInfo.getTenantId())
-            .setInboxId(userSessionId)
-            .setVersion(inboxVersion)
-            .setQos0UpToSeq(upToSeq)
-            .setNow(HLC.INST.getPhysical())
-            .build()))
-            .thenAcceptAsync(v -> {
-                switch (v.getCode()) {
-                    case OK -> {
-                        qos0Confirming = false;
-                        if (upToSeq < qos0ConfirmUpToSeq) {
-                            confirmQoS0();
+                .setReqId(HLC.INST.get())
+                .setTenantId(clientInfo.getTenantId())
+                .setInboxId(userSessionId)
+                .setVersion(inboxVersion)
+                .setQos0UpToSeq(upToSeq)
+                .setNow(HLC.INST.getPhysical())
+                .build()))
+                .thenAcceptAsync(v -> {
+                    switch (v.getCode()) {
+                        case OK -> {
+                            qos0Confirming = false;
+                            if (upToSeq < qos0ConfirmUpToSeq) {
+                                confirmQoS0();
+                            }
+                        }
+                        case NO_INBOX, CONFLICT -> {
+                            state = State.TERMINATE;
+                            handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
+                        }
+                        case BACK_PRESSURE_REJECTED -> qos0Confirming = false;
+                        case TRY_LATER -> {
+                            // try again with same version
+                            qos0Confirming = false;
+                            if (upToSeq < qos0ConfirmUpToSeq) {
+                                confirmQoS0();
+                            }
+                        }
+                        default -> {
+                            // never happens
                         }
                     }
-                    case NO_INBOX, CONFLICT -> {
-                        state = State.TERMINATE;
-                        handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
-                    }
-                    case BACK_PRESSURE_REJECTED -> qos0Confirming = false;
-                    case TRY_LATER -> {
-                        // try again with same version
-                        qos0Confirming = false;
-                        if (upToSeq < qos0ConfirmUpToSeq) {
-                            confirmQoS0();
-                        }
-                    }
-                    default -> {
-                        // never happens
-                    }
-                }
-            }, ctx.executor());
+                }, ctx.executor());
     }
 
     @Override
@@ -462,7 +468,8 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
             RoutedMessage confirmed = stagingMessage.message;
             memUsage.addAndGet(-confirmed.estBytes());
             if (stagingMessage.batchEnd() && inboxConfirmedUpToSeq < confirmed.inboxPos()) {
-                // for multiple topic filters matched message, confirm to upstream when at lease one is confirmed by client
+                // for multiple topic filters matched message, confirm to upstream when at lease
+                // one is confirmed by client
                 inboxConfirmedUpToSeq = confirmed.inboxPos();
                 confirmSendBuffer();
             }
@@ -482,45 +489,45 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         inboxConfirming = true;
         long upToSeq = inboxConfirmedUpToSeq;
         addFgTask(inboxClient.commit(CommitRequest.newBuilder()
-            .setReqId(HLC.INST.get())
-            .setTenantId(clientInfo.getTenantId())
-            .setInboxId(userSessionId)
-            .setVersion(inboxVersion)
-            .setSendBufferUpToSeq(upToSeq)
-            .setNow(HLC.INST.getPhysical())
-            .build()))
-            .thenAcceptAsync(v -> {
-                switch (v.getCode()) {
-                    case OK -> {
-                        inboxConfirming = false;
-                        if (upToSeq < inboxConfirmedUpToSeq) {
-                            confirmSendBuffer();
-                        } else {
-                            inboxReader.hint(clientReceiveQuota());
+                .setReqId(HLC.INST.get())
+                .setTenantId(clientInfo.getTenantId())
+                .setInboxId(userSessionId)
+                .setVersion(inboxVersion)
+                .setSendBufferUpToSeq(upToSeq)
+                .setNow(HLC.INST.getPhysical())
+                .build()))
+                .thenAcceptAsync(v -> {
+                    switch (v.getCode()) {
+                        case OK -> {
+                            inboxConfirming = false;
+                            if (upToSeq < inboxConfirmedUpToSeq) {
+                                confirmSendBuffer();
+                            } else {
+                                inboxReader.hint(clientReceiveQuota());
+                            }
+                        }
+                        case NO_INBOX, CONFLICT ->
+                            handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
+                        case BACK_PRESSURE_REJECTED -> {
+                            inboxConfirming = false;
+                            if (upToSeq < inboxConfirmedUpToSeq) {
+                                scheduleConfirmTimeout(upToSeq);
+                            }
+                        }
+                        case TRY_LATER -> {
+                            // try again with same version
+                            inboxConfirming = false;
+                            if (upToSeq < inboxConfirmedUpToSeq) {
+                                confirmSendBuffer();
+                            } else {
+                                inboxReader.hint(clientReceiveQuota());
+                            }
+                        }
+                        default -> {
+                            // never happens
                         }
                     }
-                    case NO_INBOX, CONFLICT ->
-                        handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
-                    case BACK_PRESSURE_REJECTED -> {
-                        inboxConfirming = false;
-                        if (upToSeq < inboxConfirmedUpToSeq) {
-                            scheduleConfirmTimeout(upToSeq);
-                        }
-                    }
-                    case TRY_LATER -> {
-                        // try again with same version
-                        inboxConfirming = false;
-                        if (upToSeq < inboxConfirmedUpToSeq) {
-                            confirmSendBuffer();
-                        } else {
-                            inboxReader.hint(clientReceiveQuota());
-                        }
-                    }
-                    default -> {
-                        // never happens
-                    }
-                }
-            }, ctx.executor());
+                }, ctx.executor());
     }
 
     private void consume(Fetched fetched) {
@@ -557,28 +564,32 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
 
     private void pubQoS0Message(InboxMessage inboxMsg) {
         boolean isDup = isDuplicateMessage(inboxMsg.getMsg().getTopic(),
-            inboxMsg.getMsg().getPublisher(), inboxMsg.getMsg().getMessage(), qoS0DedupCache);
+                inboxMsg.getMsg().getPublisher(), inboxMsg.getMsg().getMessage(), qoS0DedupCache);
         inboxMsg.getMatchedTopicFilterMap()
-            .forEach((topicFilter, option) -> pubQoS0Message(topicFilter, option, inboxMsg.getMsg(), isDup));
+                .forEach((topicFilter, option) -> pubQoS0Message(topicFilter, option, inboxMsg.getMsg(), isDup));
     }
 
     private void pubQoS0Message(String topicFilter, TopicFilterOption option, TopicMessage topicMsg, boolean isDup) {
-        addFgTask(authProvider.checkPermission(clientInfo(), buildSubAction(topicFilter, option.getQos()))).thenAccept(
-            checkResult -> {
-                String topic = topicMsg.getTopic();
-                Message message = topicMsg.getMessage();
-                ClientInfo publisher = topicMsg.getPublisher();
-                long now = HLC.INST.get();
-                tenantMeter.timer(MqttQoS0InternalLatency)
-                    .record(HLC.INST.getPhysical(now - message.getTimestamp()), TimeUnit.MILLISECONDS);
-                sendQoS0SubMessage(new RoutedMessage(topic, message, publisher,
-                    topicFilter, option, now, checkResult.hasGranted(), isDup));
-            });
+        String cacheKey = topicFilter + "\0" + option.getQos().getNumber();
+        authCache.get(cacheKey,
+                k -> addFgTask(
+                        authProvider.checkPermission(clientInfo(), buildSubAction(topicFilter, option.getQos()))))
+                .thenAccept(
+                        checkResult -> {
+                            String topic = topicMsg.getTopic();
+                            Message message = topicMsg.getMessage();
+                            ClientInfo publisher = topicMsg.getPublisher();
+                            long now = HLC.INST.get();
+                            tenantMeter.timer(MqttQoS0InternalLatency)
+                                    .record(HLC.INST.getPhysical(now - message.getTimestamp()), TimeUnit.MILLISECONDS);
+                            sendQoS0SubMessage(new RoutedMessage(topic, message, publisher,
+                                    topicFilter, option, now, checkResult.hasGranted(), isDup));
+                        });
     }
 
     private void pubBufferedMessage(InboxMessage inboxMsg, boolean batchEnd) {
         boolean isDup = isDuplicateMessage(inboxMsg.getMsg().getTopic(),
-            inboxMsg.getMsg().getPublisher(), inboxMsg.getMsg().getMessage(), qoS12DedupCache);
+                inboxMsg.getMsg().getPublisher(), inboxMsg.getMsg().getMessage(), qoS12DedupCache);
         int i = 0;
         for (Map.Entry<String, TopicFilterOption> entry : inboxMsg.getMatchedTopicFilterMap().entrySet()) {
             String topicFilter = entry.getKey();
@@ -589,36 +600,39 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     }
 
     private void pubBufferedMessage(String topicFilter,
-                                    TopicFilterOption option,
-                                    long seq,
-                                    long inboxSeq,
-                                    TopicMessage topicMsg,
-                                    boolean isDup,
-                                    boolean batchEnd) {
+            TopicFilterOption option,
+            long seq,
+            long inboxSeq,
+            TopicMessage topicMsg,
+            boolean isDup,
+            boolean batchEnd) {
         if (seq < nextSendSeq) {
             // do not buffer message that has been sent
             return;
         }
-        addFgTask(authProvider.checkPermission(clientInfo(), buildSubAction(topicFilter, option.getQos())))
-            .thenAccept(checkResult -> {
-                String topic = topicMsg.getTopic();
-                Message message = topicMsg.getMessage();
-                ClientInfo publisher = topicMsg.getPublisher();
-                long now = HLC.INST.get();
-                RoutedMessage msg = new RoutedMessage(topic, message, publisher, topicFilter, option, now,
-                    checkResult.hasGranted(), isDup, inboxSeq);
-                tenantMeter.timer(msg.qos() == AT_LEAST_ONCE ? MqttQoS1InternalLatency : MqttQoS2InternalLatency)
-                    .record(HLC.INST.getPhysical(now - message.getTimestamp()), TimeUnit.MILLISECONDS);
-                StagingMessage prev = stagingBuffer.put(seq, new StagingMessage(msg, batchEnd));
-                if (prev == null) {
-                    memUsage.addAndGet(msg.estBytes());
-                }
-                if (ctx.executor().inEventLoop()) {
-                    this.drainStaging();
-                } else {
-                    ctx.executor().execute(this::drainStaging);
-                }
-            });
+        String cacheKey = topicFilter + "\0" + option.getQos().getNumber();
+        authCache.get(cacheKey,
+                k -> addFgTask(
+                        authProvider.checkPermission(clientInfo(), buildSubAction(topicFilter, option.getQos()))))
+                .thenAccept(checkResult -> {
+                    String topic = topicMsg.getTopic();
+                    Message message = topicMsg.getMessage();
+                    ClientInfo publisher = topicMsg.getPublisher();
+                    long now = HLC.INST.get();
+                    RoutedMessage msg = new RoutedMessage(topic, message, publisher, topicFilter, option, now,
+                            checkResult.hasGranted(), isDup, inboxSeq);
+                    tenantMeter.timer(msg.qos() == AT_LEAST_ONCE ? MqttQoS1InternalLatency : MqttQoS2InternalLatency)
+                            .record(HLC.INST.getPhysical(now - message.getTimestamp()), TimeUnit.MILLISECONDS);
+                    StagingMessage prev = stagingBuffer.put(seq, new StagingMessage(msg, batchEnd));
+                    if (prev == null) {
+                        memUsage.addAndGet(msg.estBytes());
+                    }
+                    if (ctx.executor().inEventLoop()) {
+                        this.drainStaging();
+                    } else {
+                        ctx.executor().execute(this::drainStaging);
+                    }
+                });
     }
 
     private void drainStaging() {
