@@ -154,13 +154,10 @@ fi
 
 # GC options
 if [ -z "$JVM_GC_OPTS" ]; then
-  JVM_GC_OPTS="-XX:+UnlockExperimentalVMOptions \
-  -XX:+UnlockDiagnosticVMOptions \
-  -XX:+UseZGC \
-  -XX:+ZGenerational \
-  -XX:ZAllocationSpikeTolerance=5 \
+  JVM_GC_OPTS="-XX:+UseZGC \
+  -XX:ZAllocationSpikeTolerance=3 \
   -Xlog:async \
-  -Xlog:gc:file='${LOG_DIR}/gc-%t.log:time,tid,tags:filecount=5,filesize=50m' \
+  -Xlog:gc*:file='${LOG_DIR}/gc-%t.log:time,tid,tags:filecount=5,filesize=50m' \
   -XX:+CrashOnOutOfMemoryError \
   -XX:+HeapDumpOnOutOfMemoryError \
   -XX:HeapDumpPath=${HEAP_DUMP_DIR} \

@@ -105,10 +105,10 @@ service:
 jvm:
   # -- JVM heap options. Leave empty to use the built-in auto-calculation.
   heapOpts: ""
-  # -- JVM GC options. Leave empty to use defaults (ZGC).
-  gcOpts: ""
+  # -- JVM GC options. Optimized for JDK 25 ZGC (sub-millisecond pauses).
+  gcOpts: "-XX:+UseZGC -XX:ZAllocationSpikeTolerance=3 -Xlog:async -Xlog:gc*:file=/home/bifromq/logs/gc-%t.log:time,tid,tags:filecount=5,filesize=50m -XX:+CrashOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/bifromq/logs"
   # -- Extra JVM options
-  extraOpts: "-XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+ZGenerational"
+  extraOpts: "-XX:+UseCompactObjectHeaders"
   # -- Memory limit override for JVM auto-calculation (in bytes).
   #    If empty, the container memory limit is used.
   memLimit: ""
