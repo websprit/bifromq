@@ -27,6 +27,7 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.endKeyBytes;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKeyBytes;
 
 import com.google.protobuf.ByteString;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -46,15 +47,20 @@ class RocksDBKVSpaceWriterHelper {
     private final RocksDB db;
     private final WriteOptions writeOptions;
     private final WriteBatch batch;
+    private final GroupCommitWriteQueue groupCommitQueue;
     private final Map<ColumnFamilyHandle, Consumer<Map<ByteString, ByteString>>> afterWriteCallbacks = new HashMap<>();
     private final Map<ColumnFamilyHandle, Map<ByteString, ByteString>> metadataChanges = new HashMap<>();
     private final Set<ISyncContext.IMutator> mutators = new HashSet<>();
 
     RocksDBKVSpaceWriterHelper(RocksDB db, WriteOptions writeOptions) {
+        this(db, writeOptions, null);
+    }
+
+    RocksDBKVSpaceWriterHelper(RocksDB db, WriteOptions writeOptions, GroupCommitWriteQueue groupCommitQueue) {
         this.db = db;
         this.writeOptions = writeOptions;
+        this.groupCommitQueue = groupCommitQueue;
         this.batch = new WriteBatch();
-
     }
 
     void addMutator(ISyncContext.IMutator mutator) {
@@ -77,13 +83,16 @@ class RocksDBKVSpaceWriterHelper {
     }
 
     void insert(ColumnFamilyHandle cfHandle, ByteString key, ByteString value) throws RocksDBException {
-        batch.put(cfHandle, toDataKey(key), value.toByteArray());
+        byte[] dataKey = toDataKey(key);
+        ByteBuffer valueBuf = value.asReadOnlyByteBuffer();
+        batch.put(cfHandle, ByteBuffer.wrap(dataKey), valueBuf);
     }
 
     void put(ColumnFamilyHandle cfHandle, ByteString key, ByteString value) throws RocksDBException {
         byte[] dataKey = toDataKey(key);
         batch.singleDelete(cfHandle, dataKey);
-        batch.put(cfHandle, dataKey, value.toByteArray());
+        ByteBuffer valueBuf = value.asReadOnlyByteBuffer();
+        batch.put(cfHandle, ByteBuffer.wrap(dataKey), valueBuf);
     }
 
     void delete(ColumnFamilyHandle cfHandle, ByteString key) throws RocksDBException {
@@ -104,7 +113,7 @@ class RocksDBKVSpaceWriterHelper {
         }
         try {
             if (batch.count() > 0) {
-                db.write(writeOptions, batch);
+                writeInternal();
                 batch.clear();
             }
         } catch (Throwable e) {
@@ -116,7 +125,7 @@ class RocksDBKVSpaceWriterHelper {
         runInMutators(() -> {
             try {
                 if (batch.count() > 0) {
-                    db.write(writeOptions, batch);
+                    writeInternal();
                     batch.clear();
                 }
             } catch (Throwable e) {
@@ -132,6 +141,20 @@ class RocksDBKVSpaceWriterHelper {
             Map<ByteString, ByteString> updatedMetadata = metadataChanges.get(columnFamilyHandle);
             afterWriteCallbacks.get(columnFamilyHandle).accept(updatedMetadata);
             updatedMetadata.clear();
+        }
+    }
+
+    private void writeInternal() {
+        try {
+            if (groupCommitQueue != null) {
+                groupCommitQueue.submit(batch);
+            } else {
+                db.write(writeOptions, batch);
+            }
+        } catch (KVEngineException e) {
+            throw e;
+        } catch (Throwable e) {
+            throw new KVEngineException("Write failed", e);
         }
     }
 

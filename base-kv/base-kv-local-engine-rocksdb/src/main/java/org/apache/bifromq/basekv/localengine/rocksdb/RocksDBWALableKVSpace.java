@@ -22,6 +22,7 @@ package org.apache.bifromq.basekv.localengine.rocksdb;
 import static org.apache.bifromq.basekv.localengine.StructUtil.boolVal;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.ASYNC_WAL_FLUSH;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.FSYNC_WAL;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.GROUP_COMMIT;
 
 import com.google.protobuf.Struct;
 import io.micrometer.core.instrument.Metrics;
@@ -52,15 +53,17 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace implements IWALableKVSpace {
     private final AtomicReference<CompletableFuture<Long>> flushFutureRef = new AtomicReference<>();
     private final ExecutorService flushExecutor;
     private final MetricManager metricMgr;
+    private final boolean groupCommitEnabled;
+    private GroupCommitWriteQueue groupCommitQueue;
     private RocksDBWALableKVSpaceEpochHandle handle;
 
     RocksDBWALableKVSpace(String id,
-                          Struct conf,
-                          RocksDBWALableKVEngine engine,
-                          Runnable onDestroy,
-                          KVSpaceOpMeters opMeters,
-                          Logger logger,
-                          String... tags) {
+            Struct conf,
+            RocksDBWALableKVEngine engine,
+            Runnable onDestroy,
+            KVSpaceOpMeters opMeters,
+            Logger logger,
+            String... tags) {
         super(id, conf, engine, onDestroy, opMeters, logger, tags);
         writeOptions = new WriteOptions().setDisableWAL(false);
         if (isSyncWALFlush()) {
@@ -70,8 +73,9 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace implements IWALableKVSpace {
                 0L, TimeUnit.MILLISECONDS,
                 new LinkedBlockingQueue<>(),
                 EnvProvider.INSTANCE.newThreadFactory("kvspace-flusher-" + id)), "flusher", "kvspace",
-            Tags.of(tags));
+                Tags.of(tags));
         metricMgr = new MetricManager(tags);
+        groupCommitEnabled = boolVal(conf, GROUP_COMMIT);
     }
 
     @Override
@@ -80,6 +84,10 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace implements IWALableKVSpace {
             // WALable uses space root as DB directory
             Files.createDirectories(spaceRootDir().getAbsoluteFile().toPath());
             handle = new RocksDBWALableKVSpaceEpochHandle(id, spaceRootDir(), this.conf, logger, tags);
+            // Initialize group commit queue now that db is available
+            if (groupCommitEnabled) {
+                groupCommitQueue = new GroupCommitWriteQueue(handle.db(), writeOptions);
+            }
             super.doOpen();
         } catch (Throwable e) {
             throw new KVEngineException("Failed to open WALable KVSpace", e);
@@ -140,7 +148,7 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace implements IWALableKVSpace {
     @Override
     public IKVSpaceWriter toWriter() {
         return new RocksDBKVSpaceWriter(id, handle, engine, writeOptions(), syncContext,
-            writeStats.newRecorder(), this::publishMetadata, opMeters, logger);
+                writeStats.newRecorder(), this::publishMetadata, opMeters, logger, groupCommitQueue);
     }
 
     private void doFlush(CompletableFuture<Long> onDone) {
@@ -177,7 +185,7 @@ class RocksDBWALableKVSpace extends RocksDBKVSpace implements IWALableKVSpace {
     @Override
     public IKVSpaceRefreshableReader reader() {
         return new RocksDBKVSpaceReader(id, opMeters, logger, syncContext.refresher(), this::handle,
-            this::currentMetadata, new IteratorOptions(false, 524288));
+                this::currentMetadata, new IteratorOptions(false, 524288));
     }
 
     private class MetricManager {

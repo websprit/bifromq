@@ -41,27 +41,42 @@ class RocksDBKVSpaceWriter implements IKVSpaceWriter {
     private final IWriteStatsRecorder.IRecorder writeStatsRecorder;
 
     RocksDBKVSpaceWriter(String id,
-                         IRocksDBKVSpaceEpochHandle dbHandle,
-                         RocksDBKVEngine<?> engine,
-                         WriteOptions writeOptions,
-                         ISyncContext syncContext,
-                         IWriteStatsRecorder.IRecorder writeStatsRecorder,
-                         Consumer<Map<ByteString, ByteString>> afterWrite,
-                         KVSpaceOpMeters opMeters,
-                         Logger logger) {
+            IRocksDBKVSpaceEpochHandle dbHandle,
+            RocksDBKVEngine<?> engine,
+            WriteOptions writeOptions,
+            ISyncContext syncContext,
+            IWriteStatsRecorder.IRecorder writeStatsRecorder,
+            Consumer<Map<ByteString, ByteString>> afterWrite,
+            KVSpaceOpMeters opMeters,
+            Logger logger) {
         this(id, dbHandle, engine, syncContext, new RocksDBKVSpaceWriterHelper(dbHandle.db(), writeOptions),
-            writeStatsRecorder, afterWrite, opMeters, logger);
+                writeStatsRecorder, afterWrite, opMeters, logger);
+    }
+
+    RocksDBKVSpaceWriter(String id,
+            IRocksDBKVSpaceEpochHandle dbHandle,
+            RocksDBKVEngine<?> engine,
+            WriteOptions writeOptions,
+            ISyncContext syncContext,
+            IWriteStatsRecorder.IRecorder writeStatsRecorder,
+            Consumer<Map<ByteString, ByteString>> afterWrite,
+            KVSpaceOpMeters opMeters,
+            Logger logger,
+            GroupCommitWriteQueue groupCommitQueue) {
+        this(id, dbHandle, engine, syncContext,
+                new RocksDBKVSpaceWriterHelper(dbHandle.db(), writeOptions, groupCommitQueue),
+                writeStatsRecorder, afterWrite, opMeters, logger);
     }
 
     private RocksDBKVSpaceWriter(String id,
-                                 IRocksDBKVSpaceEpochHandle dbHandle,
-                                 RocksDBKVEngine<?> engine,
-                                 ISyncContext syncContext,
-                                 RocksDBKVSpaceWriterHelper writerHelper,
-                                 IWriteStatsRecorder.IRecorder writeStatsRecorder,
-                                 Consumer<Map<ByteString, ByteString>> afterWrite,
-                                 KVSpaceOpMeters opMeters,
-                                 Logger logger) {
+            IRocksDBKVSpaceEpochHandle dbHandle,
+            RocksDBKVEngine<?> engine,
+            ISyncContext syncContext,
+            RocksDBKVSpaceWriterHelper writerHelper,
+            IWriteStatsRecorder.IRecorder writeStatsRecorder,
+            Consumer<Map<ByteString, ByteString>> afterWrite,
+            KVSpaceOpMeters opMeters,
+            Logger logger) {
         this.id = id;
         this.opMeters = opMeters;
         this.logger = logger;

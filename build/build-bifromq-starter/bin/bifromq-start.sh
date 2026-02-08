@@ -157,6 +157,7 @@ if [ -z "$JVM_GC_OPTS" ]; then
   JVM_GC_OPTS="-XX:+UnlockExperimentalVMOptions \
   -XX:+UnlockDiagnosticVMOptions \
   -XX:+UseZGC \
+  -XX:+ZGenerational \
   -XX:ZAllocationSpikeTolerance=5 \
   -Xlog:async \
   -Xlog:gc:file='${LOG_DIR}/gc-%t.log:time,tid,tags:filecount=5,filesize=50m' \
@@ -172,7 +173,7 @@ if [ -z "$JVM_HEAP_OPTS" ]; then
   MEMORY_FRACTION=70 # Percentage of total memory to use
   HEAP_MEMORY=$(($MEMORY / 100 * $MEMORY_FRACTION))
   SOFT_MAX_HEAP_MEMORY=$(($HEAP_MEMORY * 80 / 100))
-  MIN_HEAP_MEMORY=$(($HEAP_MEMORY / 2))
+  MIN_HEAP_MEMORY=$HEAP_MEMORY
 
   # Calculate max direct memory based on total memory
   MAX_DIRECT_MEMORY_FRACTION=20 # Percentage of total memory to use for max direct memory

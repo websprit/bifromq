@@ -130,7 +130,7 @@
         <pf4j.version>3.13.0</pf4j.version>
         <protobuf-java.version>4.30.2</protobuf-java.version>
         <reflections.verion>0.10.2</reflections.verion>
-        <rocksdb.version>9.7.3</rocksdb.version>
+        <rocksdb.version>10.4.2</rocksdb.version>
         <rxjava3.version>3.1.12</rxjava3.version>
         <slf4j.version>2.0.17</slf4j.version>
         <swagger.version>2.2.40</swagger.version>

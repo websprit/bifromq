@@ -38,11 +38,12 @@ public abstract class ConnListenerBuilder<C extends ConnListenerBuilder<C>> {
 
     ConnListenerBuilder(MQTTBrokerBuilder builder) {
         serverBuilder = builder;
-        options.put(ChannelOption.SO_BACKLOG, 128);
+        options.put(ChannelOption.SO_BACKLOG, 4096);
         options.put(ChannelOption.SO_REUSEADDR, true);
         if (Epoll.isAvailable()) {
             options.put(EpollChannelOption.EPOLL_MODE, EpollMode.EDGE_TRIGGERED);
         }
+        childOptions.put(ChannelOption.TCP_NODELAY, true);
         childOptions.put(ChannelOption.SO_KEEPALIVE, true);
     }
 
@@ -95,7 +96,7 @@ public abstract class ConnListenerBuilder<C extends ConnListenerBuilder<C>> {
     }
 
     private abstract static class SecuredConnListenerBuilder<L extends SecuredConnListenerBuilder<L>>
-        extends ConnListenerBuilder<L> {
+            extends ConnListenerBuilder<L> {
         protected SslContext sslContext;
 
         SecuredConnListenerBuilder(MQTTBrokerBuilder builder) {

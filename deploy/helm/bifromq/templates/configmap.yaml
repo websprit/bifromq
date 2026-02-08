@@ -24,6 +24,13 @@ data:
         tlsListener:
           enable: true
           port: {{ .Values.mqtt.tlsPort }}
+          {{- if .Values.tls.certSecretName }}
+          sslConfig:
+            certFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.certFile }}"
+            keyFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.keyFile }}"
+            trustCertsFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.trustCertsFile }}"
+            clientAuth: {{ .Values.tls.clientAuth }}
+          {{- end }}
         {{- end }}
         {{- if .Values.mqtt.wsEnabled }}
         wsListener:
@@ -42,3 +49,18 @@ data:
       env: {{ .Values.clusterConfig.env | quote }}
       port: {{ .Values.clusterConfig.port }}
       clusterDomainName: {{ include "bifromq.headlessServiceFQDN" . | quote }}
+
+    distServiceConfig:
+      worker:
+        walEngineConfig:
+          groupCommit: {{ .Values.engineConfig.groupCommit }}
+
+    inboxServiceConfig:
+      store:
+        walEngineConfig:
+          groupCommit: {{ .Values.engineConfig.groupCommit }}
+
+    retainServiceConfig:
+      store:
+        walEngineConfig:
+          groupCommit: {{ .Values.engineConfig.groupCommit }}

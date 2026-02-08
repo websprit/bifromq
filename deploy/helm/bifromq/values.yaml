@@ -3,11 +3,11 @@ replicaCount: 3
 
 image:
   # -- Docker image repository
-  repository: apache-bifromq
+  repository: 192.168.75.185:5000/apache-bifromq
   # -- Docker image tag (defaults to Chart appVersion)
-  tag: ""
+  tag: "perf-opt"
   # -- Image pull policy
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 # -- Image pull secrets for private registries
 imagePullSecrets: []
@@ -20,8 +20,15 @@ fullnameOverride: ""
 # -- Pod-level annotations
 podAnnotations: {}
 
-# -- Pod-level security context (empty by default; the Dockerfile sets USER internally)
-podSecurityContext: {}
+# -- Pod-level security context
+# podSecurityContext:
+#   sysctls:
+#     - name: net.core.somaxconn
+#       value: "65535"
+#     - name: net.ipv4.tcp_tw_reuse
+#       value: "1"
+#     - name: net.ipv4.tcp_fastopen
+#       value: "3"
 
 # -- Container-level security context
 securityContext: {}
@@ -53,6 +60,25 @@ mqtt:
   wsPath: "/mqtt"
 
 # ============================================================
+# TLS Certificate Configuration
+# ============================================================
+tls:
+  # -- Name of an existing K8s Secret containing TLS certificates.
+  #    Leave empty to use auto-generated self-signed certificates.
+  #    The Secret should contain: tls.crt, tls.key, and optionally ca.crt
+  certSecretName: ""
+  # -- Mount path inside the container for certificate files
+  mountPath: "/home/bifromq/certs"
+  # -- Certificate file name in the Secret (mapped to certFile in sslConfig)
+  certFile: "tls.crt"
+  # -- Private key file name in the Secret (mapped to keyFile in sslConfig)
+  keyFile: "tls.key"
+  # -- CA certificate file name in the Secret (mapped to trustCertsFile, optional for mTLS)
+  trustCertsFile: "ca.crt"
+  # -- Client authentication mode: NONE, OPTIONAL, or REQUIRE
+  clientAuth: "NONE"
+
+# ============================================================
 # API Server Configuration
 # ============================================================
 apiServer:
@@ -82,10 +108,20 @@ jvm:
   # -- JVM GC options. Leave empty to use defaults (ZGC).
   gcOpts: ""
   # -- Extra JVM options
-  extraOpts: "-XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders"
+  extraOpts: "-XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+ZGenerational"
   # -- Memory limit override for JVM auto-calculation (in bytes).
   #    If empty, the container memory limit is used.
   memLimit: ""
+
+# ============================================================
+# RocksDB Engine Configuration
+# ============================================================
+engineConfig:
+  # -- Enable write group commit for WAL engines.
+  #    Reduces WAL syncs under concurrent writes, improving throughput ~2x.
+  #    Set to false if you encounter issues.
+  groupCommit: true
+
 
 # ============================================================
 # Persistence (RocksDB data directory)
@@ -108,11 +144,11 @@ persistence:
 # ============================================================
 resources:
   requests:
-    cpu: "500m"
-    memory: "1Gi"
+    cpu: "4"
+    memory: "8Gi"
   limits:
-    cpu: "2"
-    memory: "4Gi"
+    cpu: "4"
+    memory: "8Gi"
 
 # ============================================================
 # Node Scheduling

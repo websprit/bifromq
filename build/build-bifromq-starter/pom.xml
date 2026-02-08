@@ -94,6 +94,28 @@
             <artifactId>netty-tcnative-classes</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- BoringSSL native libraries for all target platforms -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-tcnative-boringssl-static</artifactId>
+            <version>${tcnative.version}</version>
+            <classifier>linux-x86_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-tcnative-boringssl-static</artifactId>
+            <version>${tcnative.version}</version>
+            <classifier>linux-aarch_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-tcnative-boringssl-static</artifactId>
+            <version>${tcnative.version}</version>
+            <classifier>osx-aarch_64</classifier>
+            <scope>runtime</scope>
+        </dependency>
         <!-- bifromq modules -->
         <dependency>
             <groupId>org.apache.bifromq</groupId>
@@ -231,21 +253,7 @@
                 </dependency>
             </dependencies>
         </profile>
-        <profile>
-            <id>with-boringssl-static</id>
-            <properties>
-                <tcnative.classifier>${os.detected.classifier}</tcnative.classifier>
-            </properties>
-            <dependencies>
-                <dependency>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-tcnative-boringssl-static</artifactId>
-                    <version>${tcnative.version}</version>
-                    <classifier>${tcnative.classifier}</classifier>
-                    <scope>runtime</scope>
-                </dependency>
-            </dependencies>
-        </profile>
+
         <profile>
             <id>build-release</id>
             <build>

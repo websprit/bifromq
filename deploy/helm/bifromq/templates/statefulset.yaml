@@ -104,10 +104,20 @@ spec:
             - name: data
               mountPath: /home/bifromq/data
             {{- end }}
+            {{- if .Values.tls.certSecretName }}
+            - name: tls-certs
+              mountPath: {{ .Values.tls.mountPath }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: config
           configMap:
             name: {{ include "bifromq.fullname" . }}-config
+        {{- if .Values.tls.certSecretName }}
+        - name: tls-certs
+          secret:
+            secretName: {{ .Values.tls.certSecretName }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
