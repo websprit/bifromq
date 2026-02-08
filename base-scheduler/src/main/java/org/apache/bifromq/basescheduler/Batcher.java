@@ -25,7 +25,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -88,47 +88,47 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         this.emaQueueingTime = new EMALong(System::nanoTime, 0.1, 0.9, maxBurstLatency);
         Tags tags = Tags.of("name", name, "key", Integer.toUnsignedString(System.identityHashCode(this)));
         pipelineDepthGauge = Gauge.builder("batcher.pipeline.depth", pipelineDepth::get)
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         dropCounter = Counter.builder("batcher.call.drop.count")
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         batchCallTimer = Timer.builder("batcher.call.time")
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         batchExecTimer = Timer.builder("batcher.exec.time")
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         batchBuildTimer = Timer.builder("batcher.build.time")
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         batchCountSummary = DistributionSummary.builder("batcher.batch.count")
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         batchWeightSizeSummary = DistributionSummary.builder("batcher.batch.size")
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         queueingTimeSummary = DistributionSummary.builder("batcher.queueing.time")
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         maxCapacityGauge = Gauge.builder("batcher.capacity.max", () -> capacityEstimator.maxCapacity(key))
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         queueingCountGauge = Gauge.builder("batcher.queueing.count", queuedCallCount::get)
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         inflightCountGauge = Gauge.builder("batcher.inflight.count", inFlightCallCount::get)
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
         inflightWeightGauge = Gauge.builder("batcher.inflight.size", inFlightWeight::get)
-            .tags(tags)
-            .register(Metrics.globalRegistry);
+                .tags(tags)
+                .register(Metrics.globalRegistry);
     }
 
     public CompletableFuture<CallResultT> submit(BatcherKeyT batcherKey, CallT request) {
         if (state.get() != State.RUNNING) {
             return CompletableFuture.failedFuture(
-                new RejectedExecutionException("Batcher has been shut down"));
+                    new RejectedExecutionException("Batcher has been shut down"));
         }
         if (emaQueueingTime.get() > maxBurstLatency) {
             dropCounter.increment();
@@ -203,7 +203,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         long buildStart = System.nanoTime();
         IBatchCall<CallT, CallResultT, BatcherKeyT> batchCall = borrowBatchCall();
         int batchedCallNums = 0;
-        LinkedList<ICallTask<CallT, CallResultT, BatcherKeyT>> batchedTasks = new LinkedList<>();
+        ArrayList<ICallTask<CallT, CallResultT, BatcherKeyT>> batchedTasks = new ArrayList<>();
         ICallTask<CallT, CallResultT, BatcherKeyT> callTask;
         batchCallWeighter.reset();
         long avail = capacityEstimator.maxCapacity(key);
@@ -228,40 +228,40 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
             inFlightWeight.addAndGet(batchWeight);
             CompletableFuture<Void> future = batchCall.execute();
             future
-                .orTimeout(maxBurstLatency, TimeUnit.NANOSECONDS)
-                .whenComplete((v, e) -> {
-                    long execEnd = System.nanoTime();
-                    if (e != null) {
-                        if (e instanceof BackPressureException || e instanceof TimeoutException) {
-                            capacityEstimator.onBackPressure();
-                            batchedTasks.forEach(t -> t.resultPromise()
-                                .completeExceptionally(new BackPressureException("Downstream Busy", e)));
-                            returnBatchCall(batchCall, true);
+                    .orTimeout(maxBurstLatency, TimeUnit.NANOSECONDS)
+                    .whenComplete((v, e) -> {
+                        long execEnd = System.nanoTime();
+                        if (e != null) {
+                            if (e instanceof BackPressureException || e instanceof TimeoutException) {
+                                capacityEstimator.onBackPressure();
+                                batchedTasks.forEach(t -> t.resultPromise()
+                                        .completeExceptionally(new BackPressureException("Downstream Busy", e)));
+                                returnBatchCall(batchCall, true);
+                            } else {
+                                batchedTasks.forEach(t -> t.resultPromise().completeExceptionally(e));
+                                returnBatchCall(batchCall, true);
+                            }
                         } else {
-                            batchedTasks.forEach(t -> t.resultPromise().completeExceptionally(e));
-                            returnBatchCall(batchCall, true);
+                            long execLatency = execEnd - execBegin;
+                            batchExecTimer.record(execLatency, TimeUnit.NANOSECONDS);
+                            capacityEstimator.record(batchWeight, execLatency);
+                            batchedTasks.forEach(t -> {
+                                long callLatency = execEnd - t.ts();
+                                batchCallTimer.record(callLatency, TimeUnit.NANOSECONDS);
+                            });
+                            returnBatchCall(batchCall, false);
                         }
-                    } else {
-                        long execLatency = execEnd - execBegin;
-                        batchExecTimer.record(execLatency, TimeUnit.NANOSECONDS);
-                        capacityEstimator.record(batchWeight, execLatency);
-                        batchedTasks.forEach(t -> {
-                            long callLatency = execEnd - t.ts();
-                            batchCallTimer.record(callLatency, TimeUnit.NANOSECONDS);
-                        });
-                        returnBatchCall(batchCall, false);
-                    }
-                    inFlightCallCount.addAndGet(-finalBatchSize);
-                    inFlightWeight.addAndGet(-batchWeight);
-                    pipelineDepth.getAndDecrement();
-                    // After each completion, check for shutdown
-                    if (state.get() == State.SHUTTING_DOWN) {
-                        checkShutdownCompletion();
-                    }
-                    if (!callTaskBuffers.isEmpty()) {
-                        trigger();
-                    }
-                });
+                        inFlightCallCount.addAndGet(-finalBatchSize);
+                        inFlightWeight.addAndGet(-batchWeight);
+                        pipelineDepth.getAndDecrement();
+                        // After each completion, check for shutdown
+                        if (state.get() == State.SHUTTING_DOWN) {
+                            checkShutdownCompletion();
+                        }
+                        if (!callTaskBuffers.isEmpty()) {
+                            trigger();
+                        }
+                    });
         } catch (Throwable e) {
             log.error("Batch call failed unexpectedly", e);
             batchedTasks.forEach(t -> t.resultPromise().completeExceptionally(e));
@@ -292,5 +292,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         batchPool.offer(batchCall);
     }
 
-    private enum State { RUNNING, SHUTTING_DOWN, TERMINATED }
+    private enum State {
+        RUNNING, SHUTTING_DOWN, TERMINATED
+    }
 }

@@ -25,7 +25,7 @@ import com.github.benmanes.caffeine.cache.Interner;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -46,50 +46,53 @@ public class DedupCache {
      * Create a dedup cache with bounded capacity.
      *
      * @param expireAfterAccessMillis expire millis after access
-     * @param maxChannels max cached channels
-     * @param maxTopicsPerChannel max cached topics per channel
+     * @param maxChannels             max cached channels
+     * @param maxTopicsPerChannel     max cached topics per channel
      */
     public DedupCache(long expireAfterAccessMillis, long maxChannels, long maxTopicsPerChannel) {
         this.expireAfterAccessMillis = expireAfterAccessMillis;
         this.maxTopicsPerChannel = maxTopicsPerChannel;
         this.channelTopicCaches = Caffeine.newBuilder()
-            .expireAfterAccess(expireAfterAccessMillis, TimeUnit.MILLISECONDS)
-            .maximumSize(maxChannels)
-            .removalListener((String key, ChannelTopicCache channelTopicCache, RemovalCause cause) -> {
-                long remaining = channelTopicCache.count.sum();
-                if (remaining > 0) {
-                    totalTopics.add(-remaining);
-                }
-                if (cause == RemovalCause.SIZE) {
-                    channelSizeEvicted.increment();
-                } else if (cause == RemovalCause.EXPIRED) {
-                    channelExpiredEvicted.increment();
-                }
-            })
-            .build();
+                .expireAfterAccess(expireAfterAccessMillis, TimeUnit.MILLISECONDS)
+                .maximumSize(maxChannels)
+                .removalListener((String key, ChannelTopicCache channelTopicCache, RemovalCause cause) -> {
+                    long remaining = channelTopicCache.count.sum();
+                    if (remaining > 0) {
+                        totalTopics.add(-remaining);
+                    }
+                    if (cause == RemovalCause.SIZE) {
+                        channelSizeEvicted.increment();
+                    } else if (cause == RemovalCause.EXPIRED) {
+                        channelExpiredEvicted.increment();
+                    }
+                })
+                .build();
     }
 
     /**
-     * Check if duplicate under the given publisher channel and topic, update last timestamp if not duplicate.
+     * Check if duplicate under the given publisher channel and topic, update last
+     * timestamp if not duplicate.
      * Return true if duplicate, otherwise false.
      *
      * @param channelId the channel id of publisher client
-     * @param topic  the topic
-     * @param timestamp  the inbound timestamp of message
+     * @param topic     the topic
+     * @param timestamp the inbound timestamp of message
      */
     public boolean isDuplicate(String channelId, String topic, long timestamp) {
         String normalizedTopic = TOPIC_INTERNER.intern(topic);
         ChannelTopicCache perChannel = channelTopicCaches.get(channelId, k -> new ChannelTopicCache());
-        AtomicReference<Long> lastRef = perChannel.cache.get(normalizedTopic, k -> {
+        AtomicLong lastRef = perChannel.cache.get(normalizedTopic, k -> {
             perChannel.count.increment();
             totalTopics.increment();
-            return new AtomicReference<>(0L);
+            return new AtomicLong(0L);
         });
-        Long last = lastRef.get();
-        if (last >= timestamp) {
-            return true;
-        }
-        lastRef.set(timestamp);
+        long last;
+        do {
+            last = lastRef.get();
+            if (last >= timestamp) {
+                return true;
+            }
+        } while (!lastRef.compareAndSet(last, timestamp));
         return false;
     }
 
@@ -136,24 +139,24 @@ public class DedupCache {
     }
 
     private final class ChannelTopicCache {
-        final Cache<String, AtomicReference<Long>> cache;
+        final Cache<String, AtomicLong> cache;
         final LongAdder count = new LongAdder();
 
         ChannelTopicCache() {
             this.cache = Caffeine.newBuilder()
-                .expireAfterAccess(expireAfterAccessMillis, TimeUnit.MILLISECONDS)
-                .maximumSize(maxTopicsPerChannel)
-                .removalListener((String key, AtomicReference<Long> value, RemovalCause cause) -> {
-                    Objects.requireNonNull(cause);
-                    count.decrement();
-                    totalTopics.decrement();
-                    if (cause == RemovalCause.SIZE) {
-                        topicSizeEvicted.increment();
-                    } else if (cause == RemovalCause.EXPIRED) {
-                        topicExpiredEvicted.increment();
-                    }
-                })
-                .build();
+                    .expireAfterAccess(expireAfterAccessMillis, TimeUnit.MILLISECONDS)
+                    .maximumSize(maxTopicsPerChannel)
+                    .removalListener((String key, AtomicLong value, RemovalCause cause) -> {
+                        Objects.requireNonNull(cause);
+                        count.decrement();
+                        totalTopics.decrement();
+                        if (cause == RemovalCause.SIZE) {
+                            topicSizeEvicted.increment();
+                        } else if (cause == RemovalCause.EXPIRED) {
+                            topicExpiredEvicted.increment();
+                        }
+                    })
+                    .build();
         }
     }
 }

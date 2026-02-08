@@ -33,7 +33,7 @@ import java.time.Duration;
 import java.util.AbstractCollection;
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.Objects;
@@ -53,27 +53,29 @@ class TenantRangeLookupCache {
     TenantRangeLookupCache(String tenantId, Duration expireAfterAccess, long maximumSize) {
         this.tenantId = tenantId;
         cache = Caffeine.newBuilder()
-            .expireAfterAccess(expireAfterAccess)
-            .maximumSize(maximumSize)
-            .build(this::lookup);
+                .expireAfterAccess(expireAfterAccess)
+                .maximumSize(maximumSize)
+                .build(this::lookup);
     }
 
-    // if no range contains subscription data for the topic, empty collection returned
+    // if no range contains subscription data for the topic, empty collection
+    // returned
     Collection<KVRangeSetting> lookup(String topic, NavigableMap<Boundary, KVRangeSetting> effectiveRouter) {
         ByteString tenantStartKey = tenantBeginKey(tenantId);
         Boundary tenantBoundary = toBoundary(tenantStartKey, upperBound(tenantStartKey));
         Collection<KVRangeSetting> allCandidates = findByBoundary(tenantBoundary, effectiveRouter);
-        // Wrap candidates in an order-sensitive, immutable view without copying elements
+        // Wrap candidates in an order-sensitive, immutable view without copying
+        // elements
         return cache.get(new CacheKey(tenantId, topic, new CandidatesView(allCandidates)));
     }
 
     private Collection<KVRangeSetting> lookup(CacheKey key) {
         TopicTrieNode.Builder<String> topicTrieBuilder = TopicTrieNode.builder(true);
         topicTrieBuilder.addTopic(TopicUtil.parse(tenantId, key.topic, false), key.topic);
-        try (ITopicFilterIterator<String> topicFilterIterator =
-                 ThreadLocalTopicFilterIterator.get(topicTrieBuilder.build())) {
+        try (ITopicFilterIterator<String> topicFilterIterator = ThreadLocalTopicFilterIterator
+                .get(topicTrieBuilder.build())) {
             topicFilterIterator.init(topicTrieBuilder.build());
-            List<KVRangeSetting> finalCandidates = new LinkedList<>();
+            List<KVRangeSetting> finalCandidates = new ArrayList<>();
             for (KVRangeSetting candidate : key.candidates) {
                 Optional<Fact> factOpt = candidate.getFact(Fact.class);
                 if (factOpt.isEmpty()) {
@@ -91,8 +93,10 @@ class TenantRangeLookupCache {
                 if (topicFilterIterator.isValid()) {
                     // firstTopicFilter <= nextTopicFilter
                     if (topicFilterIterator.key().equals(firstFilterLevels)
-                        || fastJoin(NUL, topicFilterIterator.key()).compareTo(fastJoin(NUL, lastFilterLevels)) <= 0) {
-                        // if firstTopicFilter == nextTopicFilter || nextFilterLevels <= lastFilterLevels
+                            || fastJoin(NUL, topicFilterIterator.key())
+                                    .compareTo(fastJoin(NUL, lastFilterLevels)) <= 0) {
+                        // if firstTopicFilter == nextTopicFilter || nextFilterLevels <=
+                        // lastFilterLevels
                         // add to finalCandidates
                         finalCandidates.add(candidate);
                     }

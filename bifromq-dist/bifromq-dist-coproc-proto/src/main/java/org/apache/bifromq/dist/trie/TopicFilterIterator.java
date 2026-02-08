@@ -23,7 +23,7 @@ import static org.apache.bifromq.util.TopicConst.NUL;
 
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -37,8 +37,9 @@ import java.util.Stack;
  */
 public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
     // the invariant of the stack:
-    // empty: no valid topic filter to iterator from  expansion set
-    // non-empty: always point to a valid topic filter in expansion set when there is no operation
+    // empty: no valid topic filter to iterator from expansion set
+    // non-empty: always point to a valid topic filter in expansion set when there
+    // is no operation
     private final Stack<TopicFilterTrieNode<V>> traverseStack = new Stack<>();
 
     private TopicTrieNode<V> topicTrieRoot;
@@ -63,8 +64,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
         clearTraverseStack();
         traverseStack.push(TopicFilterTrieNode.from(topicTrieRoot));
         int i = -1;
-        out:
-        while (!traverseStack.isEmpty() && i < filterLevels.size()) {
+        out: while (!traverseStack.isEmpty() && i < filterLevels.size()) {
             String levelNameToSeek = i == -1 ? NUL : filterLevels.get(i);
             i++;
             TopicFilterTrieNode<V> node = traverseStack.peek();
@@ -126,8 +126,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
         clearTraverseStack();
         traverseStack.push(TopicFilterTrieNode.from(topicTrieRoot));
         int i = -1;
-        out:
-        while (!traverseStack.isEmpty() && i < filterLevels.size()) {
+        out: while (!traverseStack.isEmpty() && i < filterLevels.size()) {
             String levelNameToSeek = i == -1 ? NUL : filterLevels.get(i);
             i++;
             TopicFilterTrieNode<V> node = traverseStack.peek();
@@ -152,7 +151,8 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                             traverseStack.push(parent.childNode());
                             break out;
                         } else if (parent.backingTopics().isEmpty()) {
-                            // if current stack do not represent a topicfilter in expansion set, backtrace one level up
+                            // if current stack do not represent a topicfilter in expansion set, backtrace
+                            // one level up
                             popAndRelease();
                         } else {
                             // current stack represents the greatest previous topic filter
@@ -201,7 +201,8 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
                 }
             } else {
                 // levelNameToSeek < levelName
-                // no greatest prev topicfilter exists in expansion set for the given topic filter
+                // no greatest prev topicfilter exists in expansion set for the given topic
+                // filter
                 // drain the stack
                 while (!traverseStack.isEmpty()) {
                     popAndRelease();
@@ -215,7 +216,8 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
             if (node.atValidChild()) {
                 traverseStack.push(node.childNode());
             } else {
-                // if no child, then current stack must represent the greatest previous topic filter
+                // if no child, then current stack must represent the greatest previous topic
+                // filter
                 assert !node.backingTopics().isEmpty();
                 break;
             }
@@ -282,7 +284,7 @@ public class TopicFilterIterator<V> implements ITopicFilterIterator<V> {
             throw new NoSuchElementException();
         }
         TopicFilterTrieNode<V> filterNode = traverseStack.peek();
-        List<String> topicFilter = new LinkedList<>(filterNode.topicFilterPrefix());
+        List<String> topicFilter = new ArrayList<>(filterNode.topicFilterPrefix());
         topicFilter.add(filterNode.levelName());
         return topicFilter;
     }
