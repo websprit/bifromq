@@ -58,6 +58,7 @@ import org.apache.bifromq.mqtt.handler.condition.DirectMemPressureCondition;
 import org.apache.bifromq.mqtt.handler.condition.HeapMemPressureCondition;
 import org.apache.bifromq.mqtt.handler.quic.QUICConnectionHandler;
 import org.apache.bifromq.mqtt.handler.quic.QUICStreamInitializer;
+import org.apache.bifromq.mqtt.handler.quic.HmacQuicTokenHandler;
 import org.apache.bifromq.mqtt.handler.ws.MqttOverWSHandler;
 import org.apache.bifromq.mqtt.handler.ws.WebSocketOnlyHandler;
 import org.apache.bifromq.mqtt.service.ILocalSessionServer;
@@ -316,7 +317,7 @@ class MQTTBroker implements IMQTTBroker {
                 .initialMaxStreamDataBidirectionalLocal(connBuilder.initialMaxStreamDataBidiLocal())
                 .initialMaxStreamDataBidirectionalRemote(connBuilder.initialMaxStreamDataBidiRemote())
                 .initialMaxStreamsBidirectional(connBuilder.initialMaxStreamsBidi())
-                .tokenHandler(io.netty.incubator.codec.quic.InsecureQuicTokenHandler.INSTANCE)
+                .tokenHandler(new HmacQuicTokenHandler())
                 .handler(new QUICConnectionHandler(sessionContext))
                 .streamHandler(new QUICStreamInitializer(
                         builder.connectTimeoutSeconds,
