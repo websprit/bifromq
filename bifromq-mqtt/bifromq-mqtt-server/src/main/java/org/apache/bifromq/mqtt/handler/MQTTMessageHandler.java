@@ -19,12 +19,14 @@
 
 package org.apache.bifromq.mqtt.handler;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.util.concurrent.Future;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.mqtt.handler.quic.QUICStreamRouter;
 
 @Slf4j
 public abstract class MQTTMessageHandler extends ChannelDuplexHandler {
@@ -32,6 +34,7 @@ public abstract class MQTTMessageHandler extends ChannelDuplexHandler {
     private final int explicitFlushAfterFlushes;
     private final Runnable flushTask;
     protected ChannelHandlerContext ctx;
+    protected QUICStreamRouter streamRouter; // null = single-stream / TCP mode
     private int flushPendingCount;
     private Future<?> nextScheduledFlush;
 
@@ -60,7 +63,6 @@ public abstract class MQTTMessageHandler extends ChannelDuplexHandler {
         flushIfNeeded(ctx);
     }
 
-
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         // To ensure we not miss to flush anything, do it now.
@@ -87,8 +89,32 @@ public abstract class MQTTMessageHandler extends ChannelDuplexHandler {
         ctx.fireChannelWritabilityChanged();
     }
 
+    /**
+     * Sets the stream router for multi-stream QUIC mode.
+     * When set and ready, messages can be routed to specific QUIC streams.
+     */
+    public void setStreamRouter(QUICStreamRouter router) {
+        this.streamRouter = router;
+    }
+
+    /**
+     * Returns true if multi-stream mode is active (QUIC with router ready).
+     */
+    protected boolean isMultiStream() {
+        return streamRouter != null && streamRouter.isReady();
+    }
+
     protected ChannelFuture write(Object msg) {
         return ctx.write(msg);
+    }
+
+    /**
+     * Writes a message to a specific QUIC stream channel.
+     * Used in multi-stream mode for routing messages to the correct data/control
+     * stream.
+     */
+    protected ChannelFuture writeToStream(Channel stream, Object msg) {
+        return stream.write(msg);
     }
 
     protected ChannelFuture writeAndFlush(Object msg) {
@@ -105,6 +131,14 @@ public abstract class MQTTMessageHandler extends ChannelDuplexHandler {
         }
     }
 
+    /**
+     * Flushes a specific QUIC stream channel.
+     * Used in multi-stream mode for per-stream flush.
+     */
+    protected void flushStream(Channel stream) {
+        stream.flush();
+    }
+
     private void flushIfNeeded(ChannelHandlerContext ctx) {
         if (flushPendingCount > 0) {
             flushNow(ctx);
@@ -119,7 +153,8 @@ public abstract class MQTTMessageHandler extends ChannelDuplexHandler {
 
     private void scheduleFlush(final ChannelHandlerContext ctx) {
         if (nextScheduledFlush == null) {
-            // Run as soon as possible, but still yield to give a chance for additional writes to enqueue.
+            // Run as soon as possible, but still yield to give a chance for additional
+            // writes to enqueue.
             nextScheduledFlush = ctx.executor().submit(flushTask);
         }
     }

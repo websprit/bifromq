@@ -641,13 +641,29 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
             return;
         }
         Iterator<Map.Entry<Long, StagingMessage>> itr = toBeSent.entrySet().iterator();
-        while (clientReceiveQuota() > 0 && itr.hasNext()) {
-            Map.Entry<Long, StagingMessage> entry = itr.next();
-            long seq = entry.getKey();
-            sendConfirmableSubMessage(seq, entry.getValue().message);
-            nextSendSeq = seq + 1;
+        if (isMultiStream()) {
+            // Multi-stream: bucket messages by target stream, then flush each independently
+            java.util.Map<io.netty.channel.Channel, java.util.List<Map.Entry<Long, StagingMessage>>> buckets = new java.util.HashMap<>();
+            while (clientReceiveQuota() > 0 && itr.hasNext()) {
+                Map.Entry<Long, StagingMessage> entry = itr.next();
+                io.netty.channel.Channel stream = streamRouter.resolveStream(entry.getValue().message.topic());
+                buckets.computeIfAbsent(stream, k -> new java.util.ArrayList<>()).add(entry);
+                nextSendSeq = entry.getKey() + 1;
+            }
+            buckets.forEach((stream, entries) -> {
+                entries.forEach(e -> sendConfirmableSubMessage(e.getKey(), e.getValue().message));
+                flushStream(stream);
+            });
+        } else {
+            // Single-stream / TCP: original behavior
+            while (clientReceiveQuota() > 0 && itr.hasNext()) {
+                Map.Entry<Long, StagingMessage> entry = itr.next();
+                long seq = entry.getKey();
+                sendConfirmableSubMessage(seq, entry.getValue().message);
+                nextSendSeq = seq + 1;
+            }
+            flush(true);
         }
-        flush(true);
     }
 
     private enum State {

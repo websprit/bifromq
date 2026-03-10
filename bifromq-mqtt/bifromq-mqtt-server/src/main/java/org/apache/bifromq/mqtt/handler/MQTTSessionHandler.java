@@ -65,6 +65,7 @@ import static org.apache.bifromq.util.TopicUtil.isValidTopicFilter;
 import static org.apache.bifromq.util.TopicUtil.isWildcardTopicFilter;
 
 import com.google.common.collect.Sets;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.mqtt.MqttConnectMessage;
@@ -202,15 +203,16 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     private ScheduledFuture<?> stallCheckTask;
 
     protected MQTTSessionHandler(TenantSettings settings,
-                                 ITenantMeter tenantMeter,
-                                 Condition oomCondition,
-                                 String userSessionId,
-                                 int keepAliveTimeSeconds,
-                                 ClientInfo clientInfo,
-                                 LWT noDelayLWT,
-                                 ChannelHandlerContext ctx) {
+            ITenantMeter tenantMeter,
+            Condition oomCondition,
+            String userSessionId,
+            int keepAliveTimeSeconds,
+            ClientInfo clientInfo,
+            LWT noDelayLWT,
+            ChannelHandlerContext ctx) {
         this.sizer = clientInfo.getMetadataOrDefault(MQTT_PROTOCOL_VER_KEY, "").equals(MQTT_PROTOCOL_VER_5_VALUE)
-            ? IMQTTMessageSizer.mqtt5() : IMQTTMessageSizer.mqtt3();
+                ? IMQTTMessageSizer.mqtt5()
+                : IMQTTMessageSizer.mqtt3();
         this.ctx = ctx;
         this.settings = settings;
         this.oomCondition = oomCondition;
@@ -261,75 +263,75 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     @Override
     public final CompletableFuture<SubReply.Result> subscribe(long reqId, String topicFilter, QoS qos) {
         return CompletableFuture.completedFuture(true)
-            .thenComposeAsync(v -> {
-                SubTask subTask = new SubTask(topicFilter, qos, HLC.INST.get());
-                return checkAndSubscribe(reqId, subTask, UserProperties.getDefaultInstance())
-                    .thenApply(subResult -> {
-                        switch (subResult) {
-                            case OK -> {
-                                return SubReply.Result.OK;
-                            }
-                            case EXCEED_LIMIT -> {
-                                return SubReply.Result.EXCEED_LIMIT;
-                            }
-                            case NOT_AUTHORIZED -> {
-                                return SubReply.Result.NOT_AUTHORIZED;
-                            }
-                            case TOPIC_FILTER_INVALID -> {
-                                return SubReply.Result.TOPIC_FILTER_INVALID;
-                            }
-                            case WILDCARD_NOT_SUPPORTED -> {
-                                return SubReply.Result.WILDCARD_NOT_SUPPORTED;
-                            }
-                            case SHARED_SUBSCRIPTION_NOT_SUPPORTED -> {
-                                return SubReply.Result.SHARED_SUBSCRIPTION_NOT_SUPPORTED;
-                            }
-                            case SUBSCRIPTION_IDENTIFIER_NOT_SUPPORTED -> {
-                                return SubReply.Result.SUBSCRIPTION_IDENTIFIER_NOT_SUPPORTED;
-                            }
-                            case BACK_PRESSURE_REJECTED -> {
-                                return SubReply.Result.BACK_PRESSURE_REJECTED;
-                            }
-                            case TRY_LATER -> {
-                                return SubReply.Result.TRY_LATER;
-                            }
-                            default -> {
-                                return SubReply.Result.ERROR;
-                            }
-                        }
-                    });
-            }, ctx.executor());
+                .thenComposeAsync(v -> {
+                    SubTask subTask = new SubTask(topicFilter, qos, HLC.INST.get());
+                    return checkAndSubscribe(reqId, subTask, UserProperties.getDefaultInstance())
+                            .thenApply(subResult -> {
+                                switch (subResult) {
+                                    case OK -> {
+                                        return SubReply.Result.OK;
+                                    }
+                                    case EXCEED_LIMIT -> {
+                                        return SubReply.Result.EXCEED_LIMIT;
+                                    }
+                                    case NOT_AUTHORIZED -> {
+                                        return SubReply.Result.NOT_AUTHORIZED;
+                                    }
+                                    case TOPIC_FILTER_INVALID -> {
+                                        return SubReply.Result.TOPIC_FILTER_INVALID;
+                                    }
+                                    case WILDCARD_NOT_SUPPORTED -> {
+                                        return SubReply.Result.WILDCARD_NOT_SUPPORTED;
+                                    }
+                                    case SHARED_SUBSCRIPTION_NOT_SUPPORTED -> {
+                                        return SubReply.Result.SHARED_SUBSCRIPTION_NOT_SUPPORTED;
+                                    }
+                                    case SUBSCRIPTION_IDENTIFIER_NOT_SUPPORTED -> {
+                                        return SubReply.Result.SUBSCRIPTION_IDENTIFIER_NOT_SUPPORTED;
+                                    }
+                                    case BACK_PRESSURE_REJECTED -> {
+                                        return SubReply.Result.BACK_PRESSURE_REJECTED;
+                                    }
+                                    case TRY_LATER -> {
+                                        return SubReply.Result.TRY_LATER;
+                                    }
+                                    default -> {
+                                        return SubReply.Result.ERROR;
+                                    }
+                                }
+                            });
+                }, ctx.executor());
     }
 
     @Override
     public final CompletableFuture<UnsubReply.Result> unsubscribe(long reqId, String topicFilter) {
         return CompletableFuture.completedFuture(true)
-            .thenComposeAsync(v -> checkAndUnsubscribe(reqId, topicFilter, UserProperties.getDefaultInstance())
-                .thenApply(unsubResult -> {
-                    switch (unsubResult) {
-                        case OK -> {
-                            return UnsubReply.Result.OK;
-                        }
-                        case NO_SUB -> {
-                            return UnsubReply.Result.NO_SUB;
-                        }
-                        case NOT_AUTHORIZED -> {
-                            return UnsubReply.Result.NOT_AUTHORIZED;
-                        }
-                        case TOPIC_FILTER_INVALID -> {
-                            return UnsubReply.Result.TOPIC_FILTER_INVALID;
-                        }
-                        case BACK_PRESSURE_REJECTED -> {
-                            return UnsubReply.Result.BACK_PRESSURE_REJECTED;
-                        }
-                        case TRY_LATER -> {
-                            return UnsubReply.Result.TRY_LATER;
-                        }
-                        default -> {
-                            return UnsubReply.Result.ERROR;
-                        }
-                    }
-                }), ctx.executor());
+                .thenComposeAsync(v -> checkAndUnsubscribe(reqId, topicFilter, UserProperties.getDefaultInstance())
+                        .thenApply(unsubResult -> {
+                            switch (unsubResult) {
+                                case OK -> {
+                                    return UnsubReply.Result.OK;
+                                }
+                                case NO_SUB -> {
+                                    return UnsubReply.Result.NO_SUB;
+                                }
+                                case NOT_AUTHORIZED -> {
+                                    return UnsubReply.Result.NOT_AUTHORIZED;
+                                }
+                                case TOPIC_FILTER_INVALID -> {
+                                    return UnsubReply.Result.TOPIC_FILTER_INVALID;
+                                }
+                                case BACK_PRESSURE_REJECTED -> {
+                                    return UnsubReply.Result.BACK_PRESSURE_REJECTED;
+                                }
+                                case TRY_LATER -> {
+                                    return UnsubReply.Result.TRY_LATER;
+                                }
+                                default -> {
+                                    return UnsubReply.Result.ERROR;
+                                }
+                            }
+                        }), ctx.executor());
     }
 
     public final CompletableFuture<Void> awaitInitialized() {
@@ -373,19 +375,19 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         receiveQuota = new AdaptiveReceiveQuota(settings.minSendPerSec, clientReceiveMaximum(), EMA_ALPHA);
         sessionCtx.localSessionRegistry.add(channelId(), this);
         sessionRegistration = ChannelAttrs.mqttSessionContext(ctx).sessionDictClient
-            .reg(clientInfo, (killer, redirection) -> {
-                if (redirection.getType() != ServerRedirection.Type.NO_MOVE) {
-                    ctx.executor().execute(() -> handleProtocolResponse(
-                        helper().onRedirect(redirection.getType() == ServerRedirection.Type.PERMANENT_MOVE,
-                            redirection.getServerReference())));
-                } else {
-                    ctx.executor().execute(() -> handleProtocolResponse(helper().onKick(killer)));
-                }
-            });
+                .reg(clientInfo, (killer, redirection) -> {
+                    if (redirection.getType() != ServerRedirection.Type.NO_MOVE) {
+                        ctx.executor().execute(() -> handleProtocolResponse(
+                                helper().onRedirect(redirection.getType() == ServerRedirection.Type.PERMANENT_MOVE,
+                                        redirection.getServerReference())));
+                    } else {
+                        ctx.executor().execute(() -> handleProtocolResponse(helper().onKick(killer)));
+                    }
+                });
         lastActiveAtNanos = sessionCtx.nanoTime();
         if (idleTimeoutNanos > 0) {
             idleTimeoutTask = ctx.executor()
-                .scheduleAtFixedRate(this::checkIdle, idleTimeoutNanos, idleTimeoutNanos, TimeUnit.NANOSECONDS);
+                    .scheduleAtFixedRate(this::checkIdle, idleTimeoutNanos, idleTimeoutNanos, TimeUnit.NANOSECONDS);
         }
         scheduleRedirectCheck();
         onInitialized.whenComplete((v, e) -> tenantMeter.recordCount(MqttConnectCount));
@@ -431,7 +433,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         cancelStallTask();
         // if disconnection is caused purely by channel error
         handleProtocolResponse(
-            ProtocolResponse.goAwayNow(getLocal(ClientChannelError.class).clientInfo(clientInfo).cause(cause)));
+                ProtocolResponse.goAwayNow(getLocal(ClientChannelError.class).clientInfo(clientInfo).cause(cause)));
     }
 
     @Override
@@ -450,7 +452,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             if (!unconfirmedPacketIds.isEmpty() && stallCheckTask == null) {
                 final io.netty.channel.Channel ch = ctx.channel();
                 stallCheckTask = ctx.executor().schedule(() -> fireStallIfStillUnwritable(ch),
-                    stallTimeoutSeconds(), TimeUnit.SECONDS);
+                        stallTimeoutSeconds(), TimeUnit.SECONDS);
             }
         }
     }
@@ -537,55 +539,55 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         }
         inUsePacketIds.add(packetId);
         doSubscribe(packetId, message)
-            .thenAcceptAsync(response -> {
-                handleProtocolResponse(response);
-                if (response.action() == ProtocolResponse.Action.Response) {
-                    inUsePacketIds.remove(packetId);
-                    eventCollector.report(getLocal(SubAcked.class)
-                        .messageId(packetId)
-                        .granted(((MqttSubAckMessage) (response.message())).payload().grantedQoSLevels())
-                        .topicFilter(message.payload().topicSubscriptions().stream()
-                            .map(MqttTopicSubscription::topicFilter)
-                            .collect(Collectors.toList()))
-                        .clientInfo(clientInfo));
-                }
-            }, ctx.executor());
+                .thenAcceptAsync(response -> {
+                    handleProtocolResponse(response);
+                    if (response.action() == ProtocolResponse.Action.Response) {
+                        inUsePacketIds.remove(packetId);
+                        eventCollector.report(getLocal(SubAcked.class)
+                                .messageId(packetId)
+                                .granted(((MqttSubAckMessage) (response.message())).payload().grantedQoSLevels())
+                                .topicFilter(message.payload().topicSubscriptions().stream()
+                                        .map(MqttTopicSubscription::topicFilter)
+                                        .collect(Collectors.toList()))
+                                .clientInfo(clientInfo));
+                    }
+                }, ctx.executor());
     }
 
     private CompletableFuture<ProtocolResponse> doSubscribe(long reqId, MqttSubscribeMessage message) {
         SubTasks subTasks = helper().getSubTask(message);
         List<CompletableFuture<IMQTTProtocolHelper.SubResult>> resultFutures = subTasks.tasks()
-            .stream()
-            .map(subTask -> checkAndSubscribe(reqId, subTask, subTasks.userProperties()))
-            .toList();
+                .stream()
+                .map(subTask -> checkAndSubscribe(reqId, subTask, subTasks.userProperties()))
+                .toList();
         return CompletableFuture.allOf(resultFutures.toArray(CompletableFuture[]::new))
-            .thenApplyAsync(v -> {
-                List<IMQTTProtocolHelper.SubResult> subResults =
-                    resultFutures.stream().map(CompletableFuture::join).toList();
-                if (subResults.stream().anyMatch(r -> r == IMQTTProtocolHelper.SubResult.BACK_PRESSURE_REJECTED)) {
-                    return helper().onSubBackPressured(message);
-                }
-                return helper().buildSubAckMessage(message, subResults);
-            }, ctx.executor());
+                .thenApplyAsync(v -> {
+                    List<IMQTTProtocolHelper.SubResult> subResults = resultFutures.stream().map(CompletableFuture::join)
+                            .toList();
+                    if (subResults.stream().anyMatch(r -> r == IMQTTProtocolHelper.SubResult.BACK_PRESSURE_REJECTED)) {
+                        return helper().onSubBackPressured(message);
+                    }
+                    return helper().buildSubAckMessage(message, subResults);
+                }, ctx.executor());
     }
 
     protected final CompletableFuture<IMQTTProtocolHelper.SubResult> checkAndSubscribe(long reqId,
-                                                                                       SubTask subTask,
-                                                                                       UserProperties userProps) {
+            SubTask subTask,
+            UserProperties userProps) {
         String topicFilter = subTask.topicFilter();
         if (!UTF8Util.isWellFormed(topicFilter, SANITY_CHECK)) {
             eventCollector.report(getLocal(MalformedTopicFilter.class)
-                .topicFilter(topicFilter)
-                .clientInfo(clientInfo));
+                    .topicFilter(topicFilter)
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.TOPIC_FILTER_INVALID);
         }
         if (!isValidTopicFilter(topicFilter,
-            settings.maxTopicLevelLength,
-            settings.maxTopicLevels,
-            settings.maxTopicLength)) {
+                settings.maxTopicLevelLength,
+                settings.maxTopicLevels,
+                settings.maxTopicLength)) {
             eventCollector.report(getLocal(InvalidTopicFilter.class)
-                .topicFilter(topicFilter)
-                .clientInfo(clientInfo));
+                    .topicFilter(topicFilter)
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.TOPIC_FILTER_INVALID);
         }
         if (isWildcardTopicFilter(topicFilter) && !settings.wildcardSubscriptionEnabled) {
@@ -597,101 +599,109 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         }
 
         return addFgTask(
-            authProvider.checkPermission(clientInfo, buildSubAction(topicFilter, subTask.subQoS(), userProps))
-                .thenCompose(checkResult -> {
-                    assert ctx.executor().inEventLoop();
-                    if (checkResult.hasGranted()) {
-                        if (isSharedSubscription(topicFilter)
-                            && !resourceThrottler.hasResource(clientInfo.getTenantId(), TotalSharedSubscriptions)) {
-                            eventCollector.report(getLocal(OutOfTenantResource.class)
-                                .reason(TotalSharedSubscriptions.name())
-                                .clientInfo(clientInfo));
-                            return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.EXCEED_LIMIT);
-                        }
-                        UserProperties grantedUserProps = checkResult.getGranted().getUserProps();
-                        TopicFilterOption.Builder optionBuilder = TopicFilterOption.newBuilder()
-                            .setQos(subTask.subQoS())
-                            .setRetainAsPublished(subTask.retainAsPublished())
-                            .setNoLocal(subTask.noLocal())
-                            .setRetainHandling(subTask.retainHandling())
-                            .setIncarnation(subTask.incarnation())
-                            .setUserProperties(grantedUserProps);
-                        subTask.subId().ifPresent(optionBuilder::setSubId);
-                        TopicFilterOption tfOption = optionBuilder.build();
-                        return addFgTask(subTopicFilter(reqId, topicFilter, tfOption))
-                            .thenComposeAsync(subResult -> {
-                                switch (subResult) {
-                                    case OK, EXISTS -> {
-                                        if (!isSharedSubscription(topicFilter) && settings.retainEnabled
-                                            && (tfOption.getRetainHandling() == SEND_AT_SUBSCRIBE
-                                            || (subResult == IMQTTProtocolHelper.SubResult.OK
-                                            &&
-                                            tfOption.getRetainHandling() == SEND_AT_SUBSCRIBE_IF_NOT_YET_EXISTS))) {
-                                            if (!resourceThrottler.hasResource(clientInfo.getTenantId(),
-                                                TotalRetainMatchPerSeconds)) {
-                                                eventCollector.report(getLocal(OutOfTenantResource.class)
-                                                    .reason(TotalRetainMatchPerSeconds.name())
-                                                    .clientInfo(clientInfo));
-                                                return CompletableFuture.completedFuture(EXCEED_LIMIT);
-                                            }
-                                            if (!resourceThrottler.hasResource(clientInfo.getTenantId(),
-                                                TotalRetainMatchBytesPerSecond)) {
-                                                eventCollector.report(getLocal(OutOfTenantResource.class)
-                                                    .reason(TotalRetainMatchBytesPerSecond.name())
-                                                    .clientInfo(clientInfo));
-                                                return CompletableFuture.completedFuture(EXCEED_LIMIT);
-                                            }
-                                            return addFgTask(matchRetainedMessage(reqId, topicFilter, tfOption))
-                                                .thenApply(matchReply -> {
-                                                    if (matchReply.getResult() == MatchReply.Result.OK) {
-                                                        eventCollector.report(getLocal(RetainMsgMatched.class)
-                                                            .topicFilter(topicFilter)
-                                                            .qos(tfOption.getQos())
-                                                            .clientInfo(clientInfo));
-                                                    } else {
-                                                        eventCollector.report(getLocal(MatchRetainError.class)
-                                                            .reason(matchReply.getResult().name())
-                                                            .clientInfo(clientInfo));
-                                                    }
-                                                    return IMQTTProtocolHelper.SubResult.OK;
-                                                });
-                                        }
-                                        return CompletableFuture.completedFuture(subResult);
-                                    }
-                                    case EXCEED_LIMIT -> {
-                                        return CompletableFuture.completedFuture(
-                                            IMQTTProtocolHelper.SubResult.EXCEED_LIMIT);
-                                    }
-                                    case BACK_PRESSURE_REJECTED -> {
-                                        return CompletableFuture.completedFuture(
-                                            IMQTTProtocolHelper.SubResult.BACK_PRESSURE_REJECTED);
-                                    }
-                                    case TRY_LATER -> {
-                                        return CompletableFuture.completedFuture(
-                                            IMQTTProtocolHelper.SubResult.TRY_LATER);
-                                    }
-                                    default -> {
-                                        return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.ERROR);
-                                    }
+                authProvider.checkPermission(clientInfo, buildSubAction(topicFilter, subTask.subQoS(), userProps))
+                        .thenCompose(checkResult -> {
+                            assert ctx.executor().inEventLoop();
+                            if (checkResult.hasGranted()) {
+                                if (isSharedSubscription(topicFilter)
+                                        && !resourceThrottler.hasResource(clientInfo.getTenantId(),
+                                                TotalSharedSubscriptions)) {
+                                    eventCollector.report(getLocal(OutOfTenantResource.class)
+                                            .reason(TotalSharedSubscriptions.name())
+                                            .clientInfo(clientInfo));
+                                    return CompletableFuture
+                                            .completedFuture(IMQTTProtocolHelper.SubResult.EXCEED_LIMIT);
                                 }
-                            }, ctx.executor());
-                    } else {
-                        eventCollector.report(getLocal(SubActionDisallow.class)
-                            .topicFilter(topicFilter)
-                            .qos(subTask.subQoS())
-                            .clientInfo(clientInfo));
-                        return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.NOT_AUTHORIZED);
-                    }
-                }));
+                                UserProperties grantedUserProps = checkResult.getGranted().getUserProps();
+                                TopicFilterOption.Builder optionBuilder = TopicFilterOption.newBuilder()
+                                        .setQos(subTask.subQoS())
+                                        .setRetainAsPublished(subTask.retainAsPublished())
+                                        .setNoLocal(subTask.noLocal())
+                                        .setRetainHandling(subTask.retainHandling())
+                                        .setIncarnation(subTask.incarnation())
+                                        .setUserProperties(grantedUserProps);
+                                subTask.subId().ifPresent(optionBuilder::setSubId);
+                                TopicFilterOption tfOption = optionBuilder.build();
+                                return addFgTask(subTopicFilter(reqId, topicFilter, tfOption))
+                                        .thenComposeAsync(subResult -> {
+                                            switch (subResult) {
+                                                case OK, EXISTS -> {
+                                                    if (!isSharedSubscription(topicFilter) && settings.retainEnabled
+                                                            && (tfOption.getRetainHandling() == SEND_AT_SUBSCRIBE
+                                                                    || (subResult == IMQTTProtocolHelper.SubResult.OK
+                                                                            &&
+                                                                            tfOption.getRetainHandling() == SEND_AT_SUBSCRIBE_IF_NOT_YET_EXISTS))) {
+                                                        if (!resourceThrottler.hasResource(clientInfo.getTenantId(),
+                                                                TotalRetainMatchPerSeconds)) {
+                                                            eventCollector.report(getLocal(OutOfTenantResource.class)
+                                                                    .reason(TotalRetainMatchPerSeconds.name())
+                                                                    .clientInfo(clientInfo));
+                                                            return CompletableFuture.completedFuture(EXCEED_LIMIT);
+                                                        }
+                                                        if (!resourceThrottler.hasResource(clientInfo.getTenantId(),
+                                                                TotalRetainMatchBytesPerSecond)) {
+                                                            eventCollector.report(getLocal(OutOfTenantResource.class)
+                                                                    .reason(TotalRetainMatchBytesPerSecond.name())
+                                                                    .clientInfo(clientInfo));
+                                                            return CompletableFuture.completedFuture(EXCEED_LIMIT);
+                                                        }
+                                                        return addFgTask(
+                                                                matchRetainedMessage(reqId, topicFilter, tfOption))
+                                                                .thenApply(matchReply -> {
+                                                                    if (matchReply
+                                                                            .getResult() == MatchReply.Result.OK) {
+                                                                        eventCollector
+                                                                                .report(getLocal(RetainMsgMatched.class)
+                                                                                        .topicFilter(topicFilter)
+                                                                                        .qos(tfOption.getQos())
+                                                                                        .clientInfo(clientInfo));
+                                                                    } else {
+                                                                        eventCollector
+                                                                                .report(getLocal(MatchRetainError.class)
+                                                                                        .reason(matchReply.getResult()
+                                                                                                .name())
+                                                                                        .clientInfo(clientInfo));
+                                                                    }
+                                                                    return IMQTTProtocolHelper.SubResult.OK;
+                                                                });
+                                                    }
+                                                    return CompletableFuture.completedFuture(subResult);
+                                                }
+                                                case EXCEED_LIMIT -> {
+                                                    return CompletableFuture.completedFuture(
+                                                            IMQTTProtocolHelper.SubResult.EXCEED_LIMIT);
+                                                }
+                                                case BACK_PRESSURE_REJECTED -> {
+                                                    return CompletableFuture.completedFuture(
+                                                            IMQTTProtocolHelper.SubResult.BACK_PRESSURE_REJECTED);
+                                                }
+                                                case TRY_LATER -> {
+                                                    return CompletableFuture.completedFuture(
+                                                            IMQTTProtocolHelper.SubResult.TRY_LATER);
+                                                }
+                                                default -> {
+                                                    return CompletableFuture
+                                                            .completedFuture(IMQTTProtocolHelper.SubResult.ERROR);
+                                                }
+                                            }
+                                        }, ctx.executor());
+                            } else {
+                                eventCollector.report(getLocal(SubActionDisallow.class)
+                                        .topicFilter(topicFilter)
+                                        .qos(subTask.subQoS())
+                                        .clientInfo(clientInfo));
+                                return CompletableFuture.completedFuture(IMQTTProtocolHelper.SubResult.NOT_AUTHORIZED);
+                            }
+                        }));
     }
 
     protected abstract CompletableFuture<IMQTTProtocolHelper.SubResult> subTopicFilter(long reqId,
-                                                                                       String topicFilter,
-                                                                                       TopicFilterOption option);
+            String topicFilter,
+            TopicFilterOption option);
 
     protected abstract CompletableFuture<MatchReply> matchRetainedMessage(long reqId,
-                                                                          String topicFilter,
-                                                                          TopicFilterOption option);
+            String topicFilter,
+            TopicFilterOption option);
 
     private void handleUnsubMsg(MqttUnsubscribeMessage message) {
         ProtocolResponse goAwayOnInvalid = helper().validateUnsubMessage(message);
@@ -706,62 +716,63 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         }
         inUsePacketIds.add(packetId);
         doUnsubscribe(packetId, message)
-            .thenAcceptAsync(response -> {
-                inUsePacketIds.remove(packetId);
-                handleProtocolResponse(response);
-                if (response.action() == ProtocolResponse.Action.Response) {
-                    eventCollector.report(getLocal(UnsubAcked.class)
-                        .messageId(packetId)
-                        .topicFilter(message.payload().topics())
-                        .clientInfo(clientInfo));
-                }
-            }, ctx.executor());
+                .thenAcceptAsync(response -> {
+                    inUsePacketIds.remove(packetId);
+                    handleProtocolResponse(response);
+                    if (response.action() == ProtocolResponse.Action.Response) {
+                        eventCollector.report(getLocal(UnsubAcked.class)
+                                .messageId(packetId)
+                                .topicFilter(message.payload().topics())
+                                .clientInfo(clientInfo));
+                    }
+                }, ctx.executor());
     }
 
     private CompletableFuture<ProtocolResponse> doUnsubscribe(long reqId, MqttUnsubscribeMessage message) {
         UserProperties userProps = helper().getUserProps(message);
         List<CompletableFuture<IMQTTProtocolHelper.UnsubResult>> resultFutures = message.payload().topics().stream()
-            .map(topicFilter -> checkAndUnsubscribe(reqId, topicFilter, userProps))
-            .toList();
+                .map(topicFilter -> checkAndUnsubscribe(reqId, topicFilter, userProps))
+                .toList();
         return CompletableFuture.allOf(resultFutures.toArray(CompletableFuture[]::new))
-            .thenApply(v -> resultFutures.stream().map(CompletableFuture::join).toList())
-            .thenApply(subResults -> {
-                if (subResults.stream().anyMatch(r -> r == IMQTTProtocolHelper.UnsubResult.BACK_PRESSURE_REJECTED)) {
-                    return helper().onUnsubBackPressured(message);
-                }
-                return helper().buildUnsubAckMessage(message, subResults);
-            });
+                .thenApply(v -> resultFutures.stream().map(CompletableFuture::join).toList())
+                .thenApply(subResults -> {
+                    if (subResults.stream()
+                            .anyMatch(r -> r == IMQTTProtocolHelper.UnsubResult.BACK_PRESSURE_REJECTED)) {
+                        return helper().onUnsubBackPressured(message);
+                    }
+                    return helper().buildUnsubAckMessage(message, subResults);
+                });
     }
 
     protected final CompletableFuture<IMQTTProtocolHelper.UnsubResult> checkAndUnsubscribe(long reqId,
-                                                                                           String topicFilter,
-                                                                                           UserProperties userProps) {
+            String topicFilter,
+            UserProperties userProps) {
         if (!isValidTopicFilter(topicFilter,
-            settings.maxTopicLevelLength,
-            settings.maxTopicLevels,
-            settings.maxTopicLength)) {
+                settings.maxTopicLevelLength,
+                settings.maxTopicLevels,
+                settings.maxTopicLength)) {
             eventCollector.report(getLocal(InvalidTopicFilter.class)
-                .topicFilter(topicFilter)
-                .clientInfo(clientInfo));
+                    .topicFilter(topicFilter)
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(IMQTTProtocolHelper.UnsubResult.TOPIC_FILTER_INVALID);
         }
         return addFgTask(authProvider.checkPermission(clientInfo, buildUnsubAction(topicFilter, userProps)))
-            .thenCompose(checkResult -> {
-                assert ctx.executor().inEventLoop();
-                if (checkResult.hasGranted()) {
-                    return addFgTask(unsubTopicFilter(reqId, topicFilter));
-                } else {
-                    eventCollector.report(getLocal(UnsubActionDisallow.class)
-                        .clientInfo(clientInfo)
-                        .topicFilter(topicFilter));
-                    // always reply unsub ack
-                    return CompletableFuture.completedFuture(IMQTTProtocolHelper.UnsubResult.NOT_AUTHORIZED);
-                }
-            });
+                .thenCompose(checkResult -> {
+                    assert ctx.executor().inEventLoop();
+                    if (checkResult.hasGranted()) {
+                        return addFgTask(unsubTopicFilter(reqId, topicFilter));
+                    } else {
+                        eventCollector.report(getLocal(UnsubActionDisallow.class)
+                                .clientInfo(clientInfo)
+                                .topicFilter(topicFilter));
+                        // always reply unsub ack
+                        return CompletableFuture.completedFuture(IMQTTProtocolHelper.UnsubResult.NOT_AUTHORIZED);
+                    }
+                });
     }
 
     protected abstract CompletableFuture<IMQTTProtocolHelper.UnsubResult> unsubTopicFilter(long reqId,
-                                                                                           String topicFilter);
+            String topicFilter);
 
     private void handlePubRelMsg(MqttMessage mqttMessage) {
         int packetId = ((MqttMessageIdVariableHeader) mqttMessage.variableHeader()).messageId();
@@ -781,7 +792,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             tenantMeter.recordSummary(MqttQoS1DeliverBytes, confirmed.message().getPayload().size());
         } else {
             log.trace("No packetId to confirm QoS1 released: sessionId={}, packetId={}",
-                userSessionId(clientInfo), packetId);
+                    userSessionId(clientInfo), packetId);
         }
     }
 
@@ -793,14 +804,14 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                 if (settings.debugMode) {
                     RoutedMessage received = getConfirming(packetId);
                     eventCollector.report(getLocal(QoS2Received.class)
-                        .reqId(packetId)
-                        .messageId(packetId)
-                        .isRetain(received.isRetain())
-                        .sender(received.publisher())
-                        .topic(received.topic())
-                        .matchedFilter(received.topicFilter())
-                        .size(received.message().getPayload().size())
-                        .clientInfo(clientInfo));
+                            .reqId(packetId)
+                            .messageId(packetId)
+                            .isRetain(received.isRetain())
+                            .sender(received.publisher())
+                            .topic(received.topic())
+                            .matchedFilter(received.topicFilter())
+                            .size(received.message().getPayload().size())
+                            .clientInfo(clientInfo));
                 }
             } else {
                 confirm(packetId, true);
@@ -817,20 +828,20 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             RoutedMessage confirmed = confirm(packetId, true);
             if (settings.debugMode) {
                 eventCollector.report(getLocal(QoS2Confirmed.class)
-                    .reqId(confirmed.message().getMessageId())
-                    .messageId(packetId)
-                    .isRetain(confirmed.isRetain())
-                    .sender(confirmed.publisher())
-                    .delivered(true)
-                    .topic(confirmed.topic())
-                    .matchedFilter(confirmed.topicFilter())
-                    .size(confirmed.message().getPayload().size())
-                    .clientInfo(clientInfo));
+                        .reqId(confirmed.message().getMessageId())
+                        .messageId(packetId)
+                        .isRetain(confirmed.isRetain())
+                        .sender(confirmed.publisher())
+                        .delivered(true)
+                        .topic(confirmed.topic())
+                        .matchedFilter(confirmed.topicFilter())
+                        .size(confirmed.message().getPayload().size())
+                        .clientInfo(clientInfo));
             }
             tenantMeter.recordSummary(MqttQoS2DeliverBytes, confirmed.message().getPayload().size());
         } else {
             log.trace("No packetId to confirm QoS2 released: sessionId={}, packetId={}",
-                userSessionId(clientInfo), packetId);
+                    userSessionId(clientInfo), packetId);
         }
     }
 
@@ -848,11 +859,11 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     private void fireStallIfStillUnwritable(io.netty.channel.Channel ch) {
         if (!ch.isWritable() && !unconfirmedPacketIds.isEmpty()) {
             eventCollector.report(getLocal(SubStalled.class)
-                .clientInfo(clientInfo)
-                .bytesBeforeWritable(ch.bytesBeforeWritable())
-                .unconfirmedCount(unconfirmedPacketIds.size())
-                .writeBufferLowWaterMark(ch.config().getWriteBufferLowWaterMark())
-                .writeBufferHighWaterMark(ch.config().getWriteBufferHighWaterMark()));
+                    .clientInfo(clientInfo)
+                    .bytesBeforeWritable(ch.bytesBeforeWritable())
+                    .unconfirmedCount(unconfirmedPacketIds.size())
+                    .writeBufferLowWaterMark(ch.config().getWriteBufferLowWaterMark())
+                    .writeBufferHighWaterMark(ch.config().getWriteBufferHighWaterMark()));
             tenantMeter.recordCount(MqttStalledCount);
         }
         stallCheckTask = null;
@@ -887,6 +898,10 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         } else {
             log.trace("No msg to confirm: sessionId={}, packetId={}", userSessionId, packetId);
         }
+        // Multi-stream: clean up packetId → stream mapping after QoS handshake
+        if (isMultiStream()) {
+            streamRouter.unregisterPacketId(packetId);
+        }
         if (unconfirmedPacketIds.isEmpty()) {
             cancelStallTask();
         }
@@ -913,19 +928,19 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                             int inflightAtAck = unconfirmedPacketIds.size() + 1;
                             receiveQuota.onPacketAcked(now, lastSentTimestamp, inflightAtAck);
                             tenantMeter.timer(MqttQoS1ExternalLatency)
-                                .record(now - lastSentTimestamp, TimeUnit.NANOSECONDS);
+                                    .record(now - lastSentTimestamp, TimeUnit.NANOSECONDS);
                         }
                         if (settings.debugMode) {
                             eventCollector.report(getLocal(QoS1Confirmed.class)
-                                .reqId(confirmed.message().getMessageId())
-                                .messageId(packetId)
-                                .isRetain(confirmed.isRetain())
-                                .sender(confirmed.publisher())
-                                .delivered(delivered)
-                                .topic(confirmed.topic())
-                                .matchedFilter(confirmed.topicFilter())
-                                .size(confirmed.message().getPayload().size())
-                                .clientInfo(clientInfo));
+                                    .reqId(confirmed.message().getMessageId())
+                                    .messageId(packetId)
+                                    .isRetain(confirmed.isRetain())
+                                    .sender(confirmed.publisher())
+                                    .delivered(delivered)
+                                    .topic(confirmed.topic())
+                                    .matchedFilter(confirmed.topicFilter())
+                                    .size(confirmed.message().getPayload().size())
+                                    .clientInfo(clientInfo));
                         }
                     }
                     case EXACTLY_ONCE -> {
@@ -934,19 +949,19 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                             int inflightAtAck = unconfirmedPacketIds.size() + 1;
                             receiveQuota.onPacketAcked(now, lastSentTimestamp, inflightAtAck);
                             tenantMeter.timer(MqttQoS2ExternalLatency)
-                                .record(now - lastSentTimestamp, TimeUnit.NANOSECONDS);
+                                    .record(now - lastSentTimestamp, TimeUnit.NANOSECONDS);
                         }
                         if (!delivered && settings.debugMode) {
                             eventCollector.report(getLocal(QoS2Confirmed.class)
-                                .reqId(confirmed.message().getMessageId())
-                                .messageId(packetId)
-                                .isRetain(confirmed.isRetain())
-                                .sender(confirmed.publisher())
-                                .delivered(false)
-                                .topic(confirmed.topic())
-                                .matchedFilter(confirmed.topicFilter())
-                                .size(confirmed.message().getPayload().size())
-                                .clientInfo(clientInfo));
+                                    .reqId(confirmed.message().getMessageId())
+                                    .messageId(packetId)
+                                    .isRetain(confirmed.isRetain())
+                                    .sender(confirmed.publisher())
+                                    .delivered(false)
+                                    .topic(confirmed.topic())
+                                    .matchedFilter(confirmed.topicFilter())
+                                    .size(confirmed.message().getPayload().size())
+                                    .clientInfo(clientInfo));
                         }
                     }
                     default -> {
@@ -976,13 +991,13 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         assert ctx.executor().inEventLoop();
         if (!msg.permissionGranted()) {
             eventCollector.report(getLocal(QoS0Dropped.class)
-                .reason(DropReason.NoSubPermission)
-                .isRetain(msg.isRetain())
-                .sender(publisher)
-                .topic(msg.topic())
-                .matchedFilter(topicFilter)
-                .size(msgSize)
-                .clientInfo(clientInfo()));
+                    .reason(DropReason.NoSubPermission)
+                    .isRetain(msg.isRetain())
+                    .sender(publisher)
+                    .topic(msg.topic())
+                    .matchedFilter(topicFilter)
+                    .size(msgSize)
+                    .clientInfo(clientInfo()));
             // unsubscribe the topic filter when no permission
             addBgTask(unsubTopicFilter(System.nanoTime(), topicFilter));
             return;
@@ -990,13 +1005,13 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         if (msg.isDup()) {
             tenantMeter.recordSummary(MqttDeDupBytes, msgSize);
             eventCollector.report(getLocal(QoS0Dropped.class)
-                .reason(DropReason.Duplicated)
-                .isRetain(msg.isRetain())
-                .sender(publisher)
-                .topic(msg.topic())
-                .matchedFilter(topicFilter)
-                .size(msgSize)
-                .clientInfo(clientInfo()));
+                    .reason(DropReason.Duplicated)
+                    .isRetain(msg.isRetain())
+                    .sender(publisher)
+                    .topic(msg.topic())
+                    .matchedFilter(topicFilter)
+                    .size(msgSize)
+                    .clientInfo(clientInfo()));
             return;
         }
         TopicFilterOption option = msg.option();
@@ -1004,88 +1019,99 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             // skip local sub
             if (settings.debugMode) {
                 eventCollector.report(getLocal(QoS0Dropped.class)
-                    .reason(DropReason.NoLocal)
-                    .isRetain(msg.isRetain())
-                    .sender(publisher)
-                    .topic(msg.topic())
-                    .matchedFilter(topicFilter)
-                    .size(msgSize)
-                    .clientInfo(clientInfo()));
+                        .reason(DropReason.NoLocal)
+                        .isRetain(msg.isRetain())
+                        .sender(publisher)
+                        .topic(msg.topic())
+                        .matchedFilter(topicFilter)
+                        .size(msgSize)
+                        .clientInfo(clientInfo()));
             }
             return;
         }
         if (messageExpiryInterval(pubMsg.variableHeader().properties()).orElse(Integer.MAX_VALUE) <= 0) {
-            // If the Message Expiry Interval has passed and the Server has not managed to start onward delivery
-            // to a matching subscriber, then it MUST delete the copy of the message for that subscriber [MQTT-3.3.2-5]
+            // If the Message Expiry Interval has passed and the Server has not managed to
+            // start onward delivery
+            // to a matching subscriber, then it MUST delete the copy of the message for
+            // that subscriber [MQTT-3.3.2-5]
             if (settings.debugMode) {
                 eventCollector.report(getLocal(QoS0Dropped.class)
-                    .reason(DropReason.Expired)
-                    .isRetain(msg.isRetain())
-                    .sender(publisher)
-                    .topic(msg.topic())
-                    .matchedFilter(topicFilter)
-                    .size(msgSize)
-                    .clientInfo(clientInfo()));
+                        .reason(DropReason.Expired)
+                        .isRetain(msg.isRetain())
+                        .sender(publisher)
+                        .topic(msg.topic())
+                        .matchedFilter(topicFilter)
+                        .size(msgSize)
+                        .clientInfo(clientInfo()));
             }
             return;
         }
         if (oomCondition.meet()) {
             eventCollector.report(getLocal(QoS0Dropped.class)
-                .reason(DropReason.ResourceExhausted)
-                .isRetain(msg.isRetain())
-                .sender(publisher)
-                .topic(msg.topic())
-                .matchedFilter(topicFilter)
-                .size(msgSize)
-                .clientInfo(clientInfo()));
-            return;
-        }
-        if (!ctx.channel().isActive()) {
-            eventCollector.report(getLocal(QoS0Dropped.class)
-                .reason(DropReason.SessionClosed)
-                .isRetain(msg.isRetain())
-                .sender(publisher)
-                .topic(msg.topic())
-                .matchedFilter(topicFilter)
-                .size(msgSize)
-                .clientInfo(clientInfo()));
-            return;
-        }
-        if (!ctx.channel().isWritable()) {
-            eventCollector.report(getLocal(QoS0Dropped.class)
-                .reason(DropReason.Overflow)
-                .isRetain(msg.isRetain())
-                .sender(publisher)
-                .topic(msg.topic())
-                .matchedFilter(topicFilter)
-                .size(msgSize)
-                .clientInfo(clientInfo()));
-            return;
-        }
-        memUsage.addAndGet(msgSize);
-        write(pubMsg).addListener(f -> {
-            memUsage.addAndGet(-msgSize);
-            if (f.isSuccess()) {
-                lastActiveAtNanos = sessionCtx.nanoTime();
-                if (settings.debugMode) {
-                    eventCollector.report(getLocal(QoS0Pushed.class)
-                        .isRetain(msg.isRetain())
-                        .sender(publisher)
-                        .matchedFilter(topicFilter)
-                        .topic(msg.topic())
-                        .size(msgSize)
-                        .clientInfo(clientInfo));
-                }
-            } else {
-                eventCollector.report(getLocal(QoS0Dropped.class)
-                    .reason(DropReason.ChannelError)
-                    .detail(f.cause() == null ? "unknown" : f.cause().getMessage())
+                    .reason(DropReason.ResourceExhausted)
                     .isRetain(msg.isRetain())
                     .sender(publisher)
                     .topic(msg.topic())
                     .matchedFilter(topicFilter)
                     .size(msgSize)
                     .clientInfo(clientInfo()));
+            return;
+        }
+        if (!ctx.channel().isActive()) {
+            eventCollector.report(getLocal(QoS0Dropped.class)
+                    .reason(DropReason.SessionClosed)
+                    .isRetain(msg.isRetain())
+                    .sender(publisher)
+                    .topic(msg.topic())
+                    .matchedFilter(topicFilter)
+                    .size(msgSize)
+                    .clientInfo(clientInfo()));
+            return;
+        }
+        // Multi-stream: check target data stream writability; single-stream/TCP: check
+        // channel
+        boolean writable = isMultiStream()
+                ? streamRouter.resolveStream(msg.topic()).isWritable()
+                : ctx.channel().isWritable();
+        if (!writable) {
+            eventCollector.report(getLocal(QoS0Dropped.class)
+                    .reason(DropReason.Overflow)
+                    .isRetain(msg.isRetain())
+                    .sender(publisher)
+                    .topic(msg.topic())
+                    .matchedFilter(topicFilter)
+                    .size(msgSize)
+                    .clientInfo(clientInfo()));
+            return;
+        }
+        memUsage.addAndGet(msgSize);
+        // Multi-stream: route PUBLISH to data stream; single-stream/TCP: write to ctx
+        ChannelFuture writeFuture = isMultiStream()
+                ? writeToStream(streamRouter.resolveStream(msg.topic()), pubMsg)
+                : write(pubMsg);
+        writeFuture.addListener(f -> {
+            memUsage.addAndGet(-msgSize);
+            if (f.isSuccess()) {
+                lastActiveAtNanos = sessionCtx.nanoTime();
+                if (settings.debugMode) {
+                    eventCollector.report(getLocal(QoS0Pushed.class)
+                            .isRetain(msg.isRetain())
+                            .sender(publisher)
+                            .matchedFilter(topicFilter)
+                            .topic(msg.topic())
+                            .size(msgSize)
+                            .clientInfo(clientInfo));
+                }
+            } else {
+                eventCollector.report(getLocal(QoS0Dropped.class)
+                        .reason(DropReason.ChannelError)
+                        .detail(f.cause() == null ? "unknown" : f.cause().getMessage())
+                        .isRetain(msg.isRetain())
+                        .sender(publisher)
+                        .topic(msg.topic())
+                        .matchedFilter(topicFilter)
+                        .size(msgSize)
+                        .clientInfo(clientInfo()));
             }
         });
     }
@@ -1130,23 +1156,23 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             if (settings.debugMode) {
                 switch (msg.qos()) {
                     case AT_LEAST_ONCE -> eventCollector.report(getLocal(QoS1Dropped.class)
-                        .reason(DropReason.NoLocal)
-                        .reqId(pubMsg.variableHeader().packetId())
-                        .isRetain(pubMsg.fixedHeader().isRetain())
-                        .sender(publisher)
-                        .topic(pubMsg.variableHeader().topicName())
-                        .matchedFilter(topicFilter)
-                        .size(msgSize)
-                        .clientInfo(clientInfo));
+                            .reason(DropReason.NoLocal)
+                            .reqId(pubMsg.variableHeader().packetId())
+                            .isRetain(pubMsg.fixedHeader().isRetain())
+                            .sender(publisher)
+                            .topic(pubMsg.variableHeader().topicName())
+                            .matchedFilter(topicFilter)
+                            .size(msgSize)
+                            .clientInfo(clientInfo));
                     case EXACTLY_ONCE -> eventCollector.report(getLocal(QoS2Dropped.class)
-                        .reason(DropReason.NoLocal)
-                        .reqId(pubMsg.variableHeader().packetId())
-                        .isRetain(pubMsg.fixedHeader().isRetain())
-                        .sender(publisher)
-                        .topic(pubMsg.variableHeader().topicName())
-                        .matchedFilter(topicFilter)
-                        .size(msgSize)
-                        .clientInfo(clientInfo));
+                            .reason(DropReason.NoLocal)
+                            .reqId(pubMsg.variableHeader().packetId())
+                            .isRetain(pubMsg.fixedHeader().isRetain())
+                            .sender(publisher)
+                            .topic(pubMsg.variableHeader().topicName())
+                            .matchedFilter(topicFilter)
+                            .size(msgSize)
+                            .clientInfo(clientInfo));
                     default -> {
                         // do nothing
                     }
@@ -1156,8 +1182,10 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             return;
         }
         if (messageExpiryInterval(pubMsg.variableHeader().properties()).orElse(Integer.MAX_VALUE) <= 0) {
-            //  If the Message Expiry Interval has passed and the Server has not managed to start onward delivery
-            //  to a matching subscriber, then it MUST delete the copy of the message for that subscriber [MQTT-3.3.2-5]
+            // If the Message Expiry Interval has passed and the Server has not managed to
+            // start onward delivery
+            // to a matching subscriber, then it MUST delete the copy of the message for
+            // that subscriber [MQTT-3.3.2-5]
             if (settings.debugMode) {
                 reportDropConfirmableMsgEvent(msg, DropReason.Expired);
             }
@@ -1169,13 +1197,21 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             ctx.executor().execute(() -> confirm(packetId, false));
             return;
         }
-        if (!ctx.channel().isWritable()) {
+        // Multi-stream: check target data stream writability
+        boolean writable = isMultiStream()
+                ? streamRouter.resolveStream(msg.topic()).isWritable()
+                : ctx.channel().isWritable();
+        if (!writable) {
             receiveQuota.onErrorSignal(sessionCtx.nanoTime());
             if (resendTask != null) {
                 // will retry on next resend schedule
                 resendTask.cancel(true);
             }
             return;
+        }
+        // Multi-stream: register packetId → stream mapping for QoS response routing
+        if (isMultiStream()) {
+            streamRouter.registerPacketId(packetId, streamRouter.resolveStreamIndex(msg.topic()));
         }
         memUsage.addAndGet(msgSize);
         if (confirmingMsg.sentCount == 0) {
@@ -1185,31 +1221,35 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
             tenantMeter.recordSummary(MqttResendBytes, msgSize);
         }
         confirmingMsg.sentCount++;
-        write(pubMsg).addListener(f -> {
+        // Multi-stream: route to data stream; single-stream/TCP: write to ctx
+        ChannelFuture writeFuture = isMultiStream()
+                ? writeToStream(streamRouter.resolveStream(msg.topic()), pubMsg)
+                : write(pubMsg);
+        writeFuture.addListener(f -> {
             memUsage.addAndGet(-msgSize);
             if (f.isSuccess()) {
                 if (settings.debugMode) {
                     switch (pubMsg.fixedHeader().qosLevel()) {
                         case AT_LEAST_ONCE -> eventCollector.report(getLocal(QoS1Pushed.class)
-                            .reqId(pubMsg.variableHeader().packetId())
-                            .messageId(pubMsg.variableHeader().packetId())
-                            .dup(false)
-                            .isRetain(pubMsg.fixedHeader().isRetain())
-                            .sender(publisher)
-                            .matchedFilter(topicFilter)
-                            .topic(pubMsg.variableHeader().topicName())
-                            .size(msgSize)
-                            .clientInfo(clientInfo));
+                                .reqId(pubMsg.variableHeader().packetId())
+                                .messageId(pubMsg.variableHeader().packetId())
+                                .dup(false)
+                                .isRetain(pubMsg.fixedHeader().isRetain())
+                                .sender(publisher)
+                                .matchedFilter(topicFilter)
+                                .topic(pubMsg.variableHeader().topicName())
+                                .size(msgSize)
+                                .clientInfo(clientInfo));
                         case EXACTLY_ONCE -> eventCollector.report(getLocal(QoS2Pushed.class)
-                            .reqId(pubMsg.variableHeader().packetId())
-                            .messageId(pubMsg.variableHeader().packetId())
-                            .dup(false)
-                            .isRetain(pubMsg.fixedHeader().isRetain())
-                            .sender(publisher)
-                            .matchedFilter(topicFilter)
-                            .topic(pubMsg.variableHeader().topicName())
-                            .size(msgSize)
-                            .clientInfo(clientInfo));
+                                .reqId(pubMsg.variableHeader().packetId())
+                                .messageId(pubMsg.variableHeader().packetId())
+                                .dup(false)
+                                .isRetain(pubMsg.fixedHeader().isRetain())
+                                .sender(publisher)
+                                .matchedFilter(topicFilter)
+                                .topic(pubMsg.variableHeader().topicName())
+                                .size(msgSize)
+                                .clientInfo(clientInfo));
                         default -> {
                             // do nothing
                         }
@@ -1221,23 +1261,23 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                     String detail = getPushErrorDetail(f.cause());
                     switch (msg.qos()) {
                         case AT_LEAST_ONCE -> eventCollector.report(getLocal(QoS1PushError.class)
-                            .detail(detail)
-                            .reqId(msg.message().getMessageId())
-                            .isRetain(msg.isRetain())
-                            .sender(msg.publisher())
-                            .topic(msg.topic())
-                            .matchedFilter(msg.topicFilter())
-                            .size(msg.message().getPayload().size())
-                            .clientInfo(clientInfo()));
+                                .detail(detail)
+                                .reqId(msg.message().getMessageId())
+                                .isRetain(msg.isRetain())
+                                .sender(msg.publisher())
+                                .topic(msg.topic())
+                                .matchedFilter(msg.topicFilter())
+                                .size(msg.message().getPayload().size())
+                                .clientInfo(clientInfo()));
                         case EXACTLY_ONCE -> eventCollector.report(getLocal(QoS2PushError.class)
-                            .detail(detail)
-                            .reqId(msg.message().getMessageId())
-                            .isRetain(msg.isRetain())
-                            .sender(msg.publisher())
-                            .topic(msg.topic())
-                            .matchedFilter(msg.topicFilter())
-                            .size(msg.message().getPayload().size())
-                            .clientInfo(clientInfo()));
+                                .detail(detail)
+                                .reqId(msg.message().getMessageId())
+                                .isRetain(msg.isRetain())
+                                .sender(msg.publisher())
+                                .topic(msg.topic())
+                                .matchedFilter(msg.topicFilter())
+                                .size(msg.message().getPayload().size())
+                                .clientInfo(clientInfo()));
                         default -> {
                             // do nothing
                         }
@@ -1260,23 +1300,23 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     private void reportDropConfirmableMsgEvent(RoutedMessage msg, DropReason reason) {
         switch (msg.qos()) {
             case AT_LEAST_ONCE -> eventCollector.report(getLocal(QoS1Dropped.class)
-                .reason(reason)
-                .reqId(msg.message().getMessageId())
-                .isRetain(msg.isRetain())
-                .sender(msg.publisher())
-                .topic(msg.topic())
-                .matchedFilter(msg.topicFilter())
-                .size(msg.message().getPayload().size())
-                .clientInfo(clientInfo()));
+                    .reason(reason)
+                    .reqId(msg.message().getMessageId())
+                    .isRetain(msg.isRetain())
+                    .sender(msg.publisher())
+                    .topic(msg.topic())
+                    .matchedFilter(msg.topicFilter())
+                    .size(msg.message().getPayload().size())
+                    .clientInfo(clientInfo()));
             case EXACTLY_ONCE -> eventCollector.report(getLocal(QoS2Dropped.class)
-                .reason(reason)
-                .reqId(msg.message().getMessageId())
-                .isRetain(msg.isRetain())
-                .sender(msg.publisher())
-                .topic(msg.topic())
-                .matchedFilter(msg.topicFilter())
-                .size(msg.message().getPayload().size())
-                .clientInfo(clientInfo()));
+                    .reason(reason)
+                    .reqId(msg.message().getMessageId())
+                    .isRetain(msg.isRetain())
+                    .sender(msg.publisher())
+                    .topic(msg.topic())
+                    .matchedFilter(msg.topicFilter())
+                    .size(msg.message().getPayload().size())
+                    .clientInfo(clientInfo()));
             default -> {
                 // do nothing
             }
@@ -1292,7 +1332,11 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         boolean flush = false;
         for (ConfirmingMessage confirmingMsg : unconfirmedPacketIds.values()) {
             if (confirmingMsg.sentCount <= settings.maxResendTimes) {
-                if (ctx.channel().isWritable()) {
+                // Multi-stream: check data stream writability for the message's topic
+                boolean streamWritable = isMultiStream()
+                        ? streamRouter.resolveStream(confirmingMsg.message.topic()).isWritable()
+                        : ctx.channel().isWritable();
+                if (streamWritable) {
                     if (confirmingMsg.sentCount == 0) {
                         // first time send immediately
                         writeConfirmableSubMessage(confirmingMsg, false);
@@ -1336,61 +1380,61 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     }
 
     private CompletableFuture<CheckResult> checkPubPermission(String topic, Message distMessage,
-                                                              UserProperties userProps) {
+            UserProperties userProps) {
         return authProvider.checkPermission(clientInfo(),
-            buildPubAction(topic, distMessage.getPubQoS(), distMessage.getIsRetain(), userProps));
+                buildPubAction(topic, distMessage.getPubQoS(), distMessage.getIsRetain(), userProps));
     }
 
     private CompletableFuture<Void> handleQoS0Pub(long reqId,
-                                                  String topic,
-                                                  MqttPublishMessage message,
-                                                  int ingressMsgBytes) {
+            String topic,
+            MqttPublishMessage message,
+            int ingressMsgBytes) {
         assert ctx.executor().inEventLoop();
         if (log.isTraceEnabled()) {
             log.trace("Checking authorization of pub qos0 action: reqId={}, sessionId={}, topic={}", reqId,
-                userSessionId(clientInfo), topic);
+                    userSessionId(clientInfo), topic);
         }
         Message distMessage = helper().buildDistMessage(message, clientInfo);
         UserProperties userProps = helper().getUserProps(message);
         return addFgTask(checkPubPermission(topic, distMessage, userProps))
-            .thenCompose(checkResult -> {
-                assert ctx.executor().inEventLoop();
-                if (log.isTraceEnabled()) {
-                    log.trace("Checked authorization of pub qos0 action: reqId={}, sessionId={}, topic={}:{}",
-                        reqId, userSessionId(clientInfo), topic, checkResult.getTypeCase());
-                }
-                if (checkResult.getTypeCase() == CheckResult.TypeCase.GRANTED) {
-                    tenantMeter.recordSummary(MqttQoS0IngressBytes, ingressMsgBytes);
-                    return doPub(reqId, topic, distMessage, false, ingressMsgBytes)
-                        .thenAccept(pubResult -> {
-                            assert ctx.executor().inEventLoop();
-                            if (log.isTraceEnabled()) {
-                                log.trace("Disted qos0 msg: reqId={}, sessionId={}, topic={}",
-                                    reqId, userSessionId(clientInfo), topic);
-                            }
-                            handleProtocolResponse(helper().onQoS0PubHandled(pubResult, message,
-                                checkResult.getGranted().getUserProps()));
-                        });
-                }
-                if (log.isTraceEnabled()) {
-                    log.trace("Unauthorized qos0 topic: reqId={}, sessionId={}, topic={}",
-                        reqId, userSessionId(clientInfo), topic);
-                }
-                eventCollector.report(getLocal(PubActionDisallow.class)
-                    .isLastWill(false)
-                    .topic(topic)
-                    .qos(AT_MOST_ONCE)
-                    .isRetain(distMessage.getIsRetain())
-                    .clientInfo(clientInfo));
-                handleProtocolResponse(helper().onQoS0DistDenied(topic, distMessage, checkResult));
-                return CompletableFuture.completedFuture(null);
-            });
+                .thenCompose(checkResult -> {
+                    assert ctx.executor().inEventLoop();
+                    if (log.isTraceEnabled()) {
+                        log.trace("Checked authorization of pub qos0 action: reqId={}, sessionId={}, topic={}:{}",
+                                reqId, userSessionId(clientInfo), topic, checkResult.getTypeCase());
+                    }
+                    if (checkResult.getTypeCase() == CheckResult.TypeCase.GRANTED) {
+                        tenantMeter.recordSummary(MqttQoS0IngressBytes, ingressMsgBytes);
+                        return doPub(reqId, topic, distMessage, false, ingressMsgBytes)
+                                .thenAccept(pubResult -> {
+                                    assert ctx.executor().inEventLoop();
+                                    if (log.isTraceEnabled()) {
+                                        log.trace("Disted qos0 msg: reqId={}, sessionId={}, topic={}",
+                                                reqId, userSessionId(clientInfo), topic);
+                                    }
+                                    handleProtocolResponse(helper().onQoS0PubHandled(pubResult, message,
+                                            checkResult.getGranted().getUserProps()));
+                                });
+                    }
+                    if (log.isTraceEnabled()) {
+                        log.trace("Unauthorized qos0 topic: reqId={}, sessionId={}, topic={}",
+                                reqId, userSessionId(clientInfo), topic);
+                    }
+                    eventCollector.report(getLocal(PubActionDisallow.class)
+                            .isLastWill(false)
+                            .topic(topic)
+                            .qos(AT_MOST_ONCE)
+                            .isRetain(distMessage.getIsRetain())
+                            .clientInfo(clientInfo));
+                    handleProtocolResponse(helper().onQoS0DistDenied(topic, distMessage, checkResult));
+                    return CompletableFuture.completedFuture(null);
+                });
     }
 
     private CompletableFuture<Void> handleQoS1Pub(long reqId,
-                                                  String topic,
-                                                  MqttPublishMessage message,
-                                                  int ingressMsgBytes) {
+            String topic,
+            MqttPublishMessage message,
+            int ingressMsgBytes) {
         int packetId = message.variableHeader().packetId();
         if (inUsePacketIds.contains(packetId)) {
             handleProtocolResponse(helper().respondQoS1PacketInUse(message));
@@ -1400,59 +1444,60 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         incReceivingCount();
         if (log.isTraceEnabled()) {
             log.trace("Checking authorization of pub qos1 action: reqId={}, sessionId={}, topic={}",
-                reqId, userSessionId(clientInfo), topic);
+                    reqId, userSessionId(clientInfo), topic);
         }
         Message distMessage = helper().buildDistMessage(message, clientInfo);
         UserProperties userProps = helper().getUserProps(message);
         return addFgTask(checkPubPermission(topic, distMessage, userProps))
-            .thenCompose(checkResult -> {
-                assert ctx.executor().inEventLoop();
-                if (checkResult.getTypeCase() == CheckResult.TypeCase.GRANTED) {
-                    tenantMeter.recordSummary(MqttQoS1IngressBytes, ingressMsgBytes);
-                    return doPub(reqId, topic, distMessage, message.fixedHeader().isDup(), ingressMsgBytes)
-                        .thenAccept(pubResult -> {
-                            assert ctx.executor().inEventLoop();
-                            if (log.isTraceEnabled()) {
-                                log.trace("Disted qos1 msg: reqId={}, sessionId={}, topic={}",
-                                    reqId, userSessionId(clientInfo), topic);
-                            }
-                            decReceivingCount();
-                            inUsePacketIds.remove(packetId);
-                            if (ctx.channel().isActive() && ctx.channel().isWritable()) {
-                                handleProtocolResponse(helper()
-                                    .onQoS1PubHandled(pubResult, message, checkResult.getGranted().getUserProps()));
-                            } else {
-                                eventCollector.report(getLocal(QoS1PubAckDropped.class)
-                                    .reqId(reqId)
-                                    .isDup(message.fixedHeader().isDup())
-                                    .topic(topic)
-                                    .size(message.payload().readableBytes())
-                                    .clientInfo(clientInfo));
-                            }
-                        });
-                }
-                decReceivingCount();
-                inUsePacketIds.remove(packetId);
-                if (log.isTraceEnabled()) {
-                    log.trace("Unauthorized qos1 topic: reqId={}, sessionId={}, topic={}",
-                        reqId, userSessionId(clientInfo), topic);
-                }
-                eventCollector.report(getLocal(PubActionDisallow.class)
-                    .isLastWill(false)
-                    .topic(topic)
-                    .qos(AT_LEAST_ONCE)
-                    .isRetain(distMessage.getIsRetain())
-                    .clientInfo(clientInfo));
-                handleProtocolResponse(
-                    helper().onQoS1DistDenied(topic, packetId, distMessage, checkResult));
-                return CompletableFuture.completedFuture(null);
-            });
+                .thenCompose(checkResult -> {
+                    assert ctx.executor().inEventLoop();
+                    if (checkResult.getTypeCase() == CheckResult.TypeCase.GRANTED) {
+                        tenantMeter.recordSummary(MqttQoS1IngressBytes, ingressMsgBytes);
+                        return doPub(reqId, topic, distMessage, message.fixedHeader().isDup(), ingressMsgBytes)
+                                .thenAccept(pubResult -> {
+                                    assert ctx.executor().inEventLoop();
+                                    if (log.isTraceEnabled()) {
+                                        log.trace("Disted qos1 msg: reqId={}, sessionId={}, topic={}",
+                                                reqId, userSessionId(clientInfo), topic);
+                                    }
+                                    decReceivingCount();
+                                    inUsePacketIds.remove(packetId);
+                                    if (ctx.channel().isActive() && ctx.channel().isWritable()) {
+                                        handleProtocolResponse(helper()
+                                                .onQoS1PubHandled(pubResult, message,
+                                                        checkResult.getGranted().getUserProps()));
+                                    } else {
+                                        eventCollector.report(getLocal(QoS1PubAckDropped.class)
+                                                .reqId(reqId)
+                                                .isDup(message.fixedHeader().isDup())
+                                                .topic(topic)
+                                                .size(message.payload().readableBytes())
+                                                .clientInfo(clientInfo));
+                                    }
+                                });
+                    }
+                    decReceivingCount();
+                    inUsePacketIds.remove(packetId);
+                    if (log.isTraceEnabled()) {
+                        log.trace("Unauthorized qos1 topic: reqId={}, sessionId={}, topic={}",
+                                reqId, userSessionId(clientInfo), topic);
+                    }
+                    eventCollector.report(getLocal(PubActionDisallow.class)
+                            .isLastWill(false)
+                            .topic(topic)
+                            .qos(AT_LEAST_ONCE)
+                            .isRetain(distMessage.getIsRetain())
+                            .clientInfo(clientInfo));
+                    handleProtocolResponse(
+                            helper().onQoS1DistDenied(topic, packetId, distMessage, checkResult));
+                    return CompletableFuture.completedFuture(null);
+                });
     }
 
     private CompletableFuture<Void> handleQoS2Pub(long reqId,
-                                                  String topic,
-                                                  MqttPublishMessage message,
-                                                  int ingressMsgBytes) {
+            String topic,
+            MqttPublishMessage message,
+            int ingressMsgBytes) {
         assert ctx.executor().inEventLoop();
         int packetId = message.variableHeader().packetId();
         if (inUsePacketIds.contains(packetId)) {
@@ -1465,77 +1510,77 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         Message distMessage = helper().buildDistMessage(message, clientInfo);
         UserProperties userProps = helper().getUserProps(message);
         return addFgTask(checkPubPermission(topic, distMessage, userProps))
-            .thenCompose(checkResult -> {
-                assert ctx.executor().inEventLoop();
-                if (checkResult.getTypeCase() == CheckResult.TypeCase.GRANTED) {
-                    tenantMeter.recordSummary(MqttQoS2IngressBytes, ingressMsgBytes);
-                    return doPub(reqId, topic, distMessage, message.fixedHeader().isDup(), ingressMsgBytes)
-                        .thenAccept(pubResult -> {
-                            assert ctx.executor().inEventLoop();
-                            if (log.isTraceEnabled()) {
-                                log.trace("Published qos2 msg: reqId={}, sessionId={}, topic={}",
-                                    reqId, userSessionId(clientInfo), topic);
-                            }
-                            if (ctx.channel().isActive()) {
-                                if (ctx.channel().isWritable()) {
-                                    if (pubResult == PubResult.BACK_PRESSURE_REJECTED
-                                        || pubResult == PubResult.TRY_LATER
-                                        || pubResult == PubResult.ERROR) {
-                                        decReceivingCount();
-                                        inUsePacketIds.remove(packetId);
+                .thenCompose(checkResult -> {
+                    assert ctx.executor().inEventLoop();
+                    if (checkResult.getTypeCase() == CheckResult.TypeCase.GRANTED) {
+                        tenantMeter.recordSummary(MqttQoS2IngressBytes, ingressMsgBytes);
+                        return doPub(reqId, topic, distMessage, message.fixedHeader().isDup(), ingressMsgBytes)
+                                .thenAccept(pubResult -> {
+                                    assert ctx.executor().inEventLoop();
+                                    if (log.isTraceEnabled()) {
+                                        log.trace("Published qos2 msg: reqId={}, sessionId={}, topic={}",
+                                                reqId, userSessionId(clientInfo), topic);
                                     }
-                                    handleProtocolResponse(helper().onQoS2PubHandled(pubResult, message,
-                                        checkResult.getGranted().getUserProps()));
-                                } else {
-                                    decReceivingCount();
-                                    inUsePacketIds.remove(packetId);
-                                    eventCollector.report(getLocal(QoS2PubRecDropped.class)
-                                        .reqId(reqId)
-                                        .isDup(message.fixedHeader().isDup())
-                                        .topic(topic)
-                                        .size(message.payload().readableBytes())
-                                        .clientInfo(clientInfo));
-                                }
-                            }
-                        });
-                }
-                decReceivingCount();
-                inUsePacketIds.remove(packetId);
-                if (log.isTraceEnabled()) {
-                    log.trace("Unauthorized qos2 topic: reqId={}, sessionId={}, topic={}",
-                        reqId, userSessionId(clientInfo), topic);
-                }
-                eventCollector.report(getLocal(PubActionDisallow.class)
-                    .isLastWill(false)
-                    .topic(topic)
-                    .qos(EXACTLY_ONCE)
-                    .isRetain(distMessage.getIsRetain())
-                    .clientInfo(clientInfo));
-                handleProtocolResponse(
-                    helper().onQoS2DistDenied(topic, packetId, distMessage, checkResult));
-                return CompletableFuture.completedFuture(null);
-            });
+                                    if (ctx.channel().isActive()) {
+                                        if (ctx.channel().isWritable()) {
+                                            if (pubResult == PubResult.BACK_PRESSURE_REJECTED
+                                                    || pubResult == PubResult.TRY_LATER
+                                                    || pubResult == PubResult.ERROR) {
+                                                decReceivingCount();
+                                                inUsePacketIds.remove(packetId);
+                                            }
+                                            handleProtocolResponse(helper().onQoS2PubHandled(pubResult, message,
+                                                    checkResult.getGranted().getUserProps()));
+                                        } else {
+                                            decReceivingCount();
+                                            inUsePacketIds.remove(packetId);
+                                            eventCollector.report(getLocal(QoS2PubRecDropped.class)
+                                                    .reqId(reqId)
+                                                    .isDup(message.fixedHeader().isDup())
+                                                    .topic(topic)
+                                                    .size(message.payload().readableBytes())
+                                                    .clientInfo(clientInfo));
+                                        }
+                                    }
+                                });
+                    }
+                    decReceivingCount();
+                    inUsePacketIds.remove(packetId);
+                    if (log.isTraceEnabled()) {
+                        log.trace("Unauthorized qos2 topic: reqId={}, sessionId={}, topic={}",
+                                reqId, userSessionId(clientInfo), topic);
+                    }
+                    eventCollector.report(getLocal(PubActionDisallow.class)
+                            .isLastWill(false)
+                            .topic(topic)
+                            .qos(EXACTLY_ONCE)
+                            .isRetain(distMessage.getIsRetain())
+                            .clientInfo(clientInfo));
+                    handleProtocolResponse(
+                            helper().onQoS2DistDenied(topic, packetId, distMessage, checkResult));
+                    return CompletableFuture.completedFuture(null);
+                });
     }
 
     private CompletableFuture<Void> pubWillMessage(LWT willMessage) {
         return authProvider.checkPermission(clientInfo(), buildPubAction(willMessage.getTopic(),
                 willMessage.getMessage()
-                    .getPubQoS(),
+                        .getPubQoS(),
                 willMessage.getMessage().getIsRetain()))
-            .thenCompose(checkResult -> {
-                assert ctx.executor().inEventLoop();
-                if (checkResult.hasGranted()) {
-                    return doPubLastWill(willMessage);
-                } else {
-                    sessionCtx.eventCollector.report(getLocal(PubActionDisallow.class)
-                        .isLastWill(true)
-                        .topic(willMessage.getTopic())
-                        .qos(willMessage.getMessage().getPubQoS())
-                        .isRetain(willMessage.getMessage().getIsRetain())
-                        .clientInfo(clientInfo));
-                    return CompletableFuture.completedFuture(null);
-                }
-            });
+                .thenCompose(checkResult -> {
+                    assert ctx.executor().inEventLoop();
+                    if (checkResult.hasGranted()) {
+                        return doPubLastWill(willMessage);
+                    } else {
+                        sessionCtx.eventCollector.report(getLocal(PubActionDisallow.class)
+                                .isLastWill(true)
+                                .topic(willMessage.getTopic())
+                                .qos(willMessage.getMessage().getPubQoS())
+                                .isRetain(willMessage.getMessage().getIsRetain())
+                                .clientInfo(clientInfo));
+                        return CompletableFuture.completedFuture(null);
+                    }
+                });
     }
 
     private void checkIdle() {
@@ -1548,7 +1593,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     private void scheduleRedirectCheck() {
         long delay = ThreadLocalRandom.current().nextInt(REDIRECT_CHECK_INTERVAL_SECONDS);
         redirectTask = ctx.executor()
-            .scheduleAtFixedRate(this::checkRedirect, delay, REDIRECT_CHECK_INTERVAL_SECONDS, TimeUnit.SECONDS);
+                .scheduleAtFixedRate(this::checkRedirect, delay, REDIRECT_CHECK_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
 
     private void checkRedirect() {
@@ -1594,7 +1639,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                     ctx.close();
                 } else {
                     ctx.executor().schedule(() -> ctx.close(),
-                        ThreadLocalRandom.current().nextInt(100, 3000), TimeUnit.MILLISECONDS);
+                            ThreadLocalRandom.current().nextInt(100, 3000), TimeUnit.MILLISECONDS);
                 }
             }
             case ResponseAndGoAway, ResponseAndGoAwayNow -> {
@@ -1612,7 +1657,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                     farewell.run();
                 } else {
                     ctx.executor()
-                        .schedule(farewell, ThreadLocalRandom.current().nextInt(100, 3000), TimeUnit.MILLISECONDS);
+                            .schedule(farewell, ThreadLocalRandom.current().nextInt(100, 3000), TimeUnit.MILLISECONDS);
                 }
             }
             default -> {
@@ -1622,9 +1667,9 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     }
 
     protected final boolean isDuplicateMessage(String topic,
-                                               ClientInfo publisher,
-                                               Message message,
-                                               DedupCache dedupCache) {
+            ClientInfo publisher,
+            Message message,
+            DedupCache dedupCache) {
         if (message.getIsRetained()) {
             return false;
         }
@@ -1638,162 +1683,162 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
 
     private CompletableFuture<Void> doPubLastWill(LWT willMessage) {
         Message message = willMessage.getMessage().toBuilder()
-            .setTimestamp(HLC.INST.get())
-            .build();
+                .setTimestamp(HLC.INST.get())
+                .build();
         long reqId = sessionCtx.nanoTime();
         int size = message.getPayload().size() + willMessage.getTopic().length();
         return doPub(reqId, willMessage.getTopic(), message, true)
-            .handle((v, e) -> {
-                assert ctx.executor().inEventLoop();
-                if (e != null) {
-                    eventCollector.report(getLocal(WillDistError.class)
-                        .clientInfo(clientInfo)
-                        .reqId(reqId)
-                        .topic(willMessage.getTopic())
-                        .qos(willMessage.getMessage().getPubQoS())
-                        .size(willMessage.getMessage().getPayload().size()));
-                } else {
-                    switch (v) {
-                        case OK, NO_MATCH -> {
-                            switch (message.getPubQoS()) {
-                                case AT_MOST_ONCE -> tenantMeter.recordSummary(MqttQoS0DistBytes, size);
-                                case AT_LEAST_ONCE -> tenantMeter.recordSummary(MqttQoS1DistBytes, size);
-                                case EXACTLY_ONCE -> tenantMeter.recordSummary(MqttQoS2DistBytes, size);
-                                default -> {
-                                    // do nothing
-                                }
-                            }
-                            eventCollector.report(getLocal(WillDisted.class)
+                .handle((v, e) -> {
+                    assert ctx.executor().inEventLoop();
+                    if (e != null) {
+                        eventCollector.report(getLocal(WillDistError.class)
                                 .clientInfo(clientInfo)
                                 .reqId(reqId)
                                 .topic(willMessage.getTopic())
                                 .qos(willMessage.getMessage().getPubQoS())
                                 .size(willMessage.getMessage().getPayload().size()));
+                    } else {
+                        switch (v) {
+                            case OK, NO_MATCH -> {
+                                switch (message.getPubQoS()) {
+                                    case AT_MOST_ONCE -> tenantMeter.recordSummary(MqttQoS0DistBytes, size);
+                                    case AT_LEAST_ONCE -> tenantMeter.recordSummary(MqttQoS1DistBytes, size);
+                                    case EXACTLY_ONCE -> tenantMeter.recordSummary(MqttQoS2DistBytes, size);
+                                    default -> {
+                                        // do nothing
+                                    }
+                                }
+                                eventCollector.report(getLocal(WillDisted.class)
+                                        .clientInfo(clientInfo)
+                                        .reqId(reqId)
+                                        .topic(willMessage.getTopic())
+                                        .qos(willMessage.getMessage().getPubQoS())
+                                        .size(willMessage.getMessage().getPayload().size()));
+                            }
+                            default -> eventCollector.report(getLocal(WillDistError.class)
+                                    .clientInfo(clientInfo)
+                                    .reqId(reqId)
+                                    .topic(willMessage.getTopic())
+                                    .qos(willMessage.getMessage().getPubQoS())
+                                    .size(willMessage.getMessage().getPayload().size()));
                         }
-                        default -> eventCollector.report(getLocal(WillDistError.class)
-                            .clientInfo(clientInfo)
-                            .reqId(reqId)
-                            .topic(willMessage.getTopic())
-                            .qos(willMessage.getMessage().getPubQoS())
-                            .size(willMessage.getMessage().getPayload().size()));
                     }
-                }
-                return null;
-            });
+                    return null;
+                });
     }
 
     private CompletableFuture<PubResult> doPub(long reqId,
-                                               String topic,
-                                               Message message,
-                                               boolean isDup,
-                                               int ingressMsgSize) {
+            String topic,
+            Message message,
+            boolean isDup,
+            int ingressMsgSize) {
         return doPub(reqId, topic, message, false)
-            .thenApply(v -> {
-                assert ctx.executor().inEventLoop();
-                switch (v) {
-                    case OK, NO_MATCH -> {
-                        if (log.isTraceEnabled()) {
-                            log.trace("Msg published: reqId={}, sessionId={}, topic={}, qos={}, size={}",
-                                reqId, userSessionId, topic, message.getPubQoS(), message.getPayload().size());
+                .thenApply(v -> {
+                    assert ctx.executor().inEventLoop();
+                    switch (v) {
+                        case OK, NO_MATCH -> {
+                            if (log.isTraceEnabled()) {
+                                log.trace("Msg published: reqId={}, sessionId={}, topic={}, qos={}, size={}",
+                                        reqId, userSessionId, topic, message.getPubQoS(), message.getPayload().size());
+                            }
+                            switch (message.getPubQoS()) {
+                                case AT_MOST_ONCE -> tenantMeter.recordSummary(MqttQoS0DistBytes, ingressMsgSize);
+                                case AT_LEAST_ONCE -> tenantMeter.recordSummary(MqttQoS1DistBytes, ingressMsgSize);
+                                case EXACTLY_ONCE -> tenantMeter.recordSummary(MqttQoS2DistBytes, ingressMsgSize);
+                                default -> {
+                                    // do nothing
+                                }
+                            }
                         }
-                        switch (message.getPubQoS()) {
-                            case AT_MOST_ONCE -> tenantMeter.recordSummary(MqttQoS0DistBytes, ingressMsgSize);
-                            case AT_LEAST_ONCE -> tenantMeter.recordSummary(MqttQoS1DistBytes, ingressMsgSize);
-                            case EXACTLY_ONCE -> tenantMeter.recordSummary(MqttQoS2DistBytes, ingressMsgSize);
-                            default -> {
-                                // do nothing
+                        default -> {
+                            switch (message.getPubQoS()) {
+                                case AT_MOST_ONCE -> eventCollector.report(getLocal(QoS0DistError.class)
+                                        .reqId(reqId)
+                                        .topic(topic)
+                                        .size(ingressMsgSize)
+                                        .reason(v.name())
+                                        .clientInfo(clientInfo));
+                                case AT_LEAST_ONCE -> eventCollector.report(getLocal(QoS1DistError.class)
+                                        .reqId(reqId)
+                                        .topic(topic)
+                                        .isDup(isDup)
+                                        .size(ingressMsgSize)
+                                        .reason(v.name())
+                                        .clientInfo(clientInfo));
+                                case EXACTLY_ONCE -> eventCollector.report(getLocal(QoS2DistError.class)
+                                        .reqId(reqId)
+                                        .topic(topic)
+                                        .isDup(isDup)
+                                        .size(ingressMsgSize)
+                                        .reason(v.name())
+                                        .clientInfo(clientInfo));
+                                default -> {
+                                    // do nothing
+                                }
                             }
                         }
                     }
-                    default -> {
-                        switch (message.getPubQoS()) {
-                            case AT_MOST_ONCE -> eventCollector.report(getLocal(QoS0DistError.class)
-                                .reqId(reqId)
-                                .topic(topic)
-                                .size(ingressMsgSize)
-                                .reason(v.name())
-                                .clientInfo(clientInfo));
-                            case AT_LEAST_ONCE -> eventCollector.report(getLocal(QoS1DistError.class)
-                                .reqId(reqId)
-                                .topic(topic)
-                                .isDup(isDup)
-                                .size(ingressMsgSize)
-                                .reason(v.name())
-                                .clientInfo(clientInfo));
-                            case EXACTLY_ONCE -> eventCollector.report(getLocal(QoS2DistError.class)
-                                .reqId(reqId)
-                                .topic(topic)
-                                .isDup(isDup)
-                                .size(ingressMsgSize)
-                                .reason(v.name())
-                                .clientInfo(clientInfo));
-                            default -> {
-                                // do nothing
-                            }
-                        }
-                    }
-                }
-                return v;
-            });
+                    return v;
+                });
     }
 
     private CompletableFuture<PubResult> doPub(long reqId, String topic, Message message, boolean isLWT) {
         if (log.isTraceEnabled()) {
             log.trace("Disting msg: req={}, topic={}, qos={}, size={}",
-                reqId, topic, message.getPubQoS(), message.getPayload().size());
+                    reqId, topic, message.getPubQoS(), message.getPayload().size());
         }
 
-        CompletableFuture<PubResult> distTask =
-            trackTask(sessionCtx.distClient.pub(reqId, topic, message, clientInfo), isLWT);
+        CompletableFuture<PubResult> distTask = trackTask(sessionCtx.distClient.pub(reqId, topic, message, clientInfo),
+                isLWT);
         if (!message.getIsRetain()) {
             // Ensure continuation runs on the channel event loop
             return distTask.thenApplyAsync(v -> v, ctx.executor());
         } else {
-            CompletableFuture<RetainReply.Result> retainTask =
-                trackTask(retainMessage(reqId, topic, message, isLWT), isLWT);
+            CompletableFuture<RetainReply.Result> retainTask = trackTask(retainMessage(reqId, topic, message, isLWT),
+                    isLWT);
             return allOf(retainTask, distTask).thenApplyAsync(v -> distTask.join(), ctx.executor());
         }
     }
 
     private CompletableFuture<RetainReply.Result> retainMessage(long reqId, String topic, Message message,
-                                                                boolean isLWT) {
+            boolean isLWT) {
         if (!settings.retainEnabled) {
             eventCollector.report(getLocal(MsgRetainedError.class)
-                .reqId(reqId)
-                .topic(topic)
-                .qos(message.getPubQoS())
-                .payload(message.getPayload().asReadOnlyByteBuffer())
-                .size(message.getPayload().size())
-                .reason("Retain Disabled")
-                .clientInfo(clientInfo));
+                    .reqId(reqId)
+                    .topic(topic)
+                    .qos(message.getPubQoS())
+                    .payload(message.getPayload().asReadOnlyByteBuffer())
+                    .size(message.getPayload().size())
+                    .reason("Retain Disabled")
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(RetainReply.Result.RETAINED);
         }
         if (log.isTraceEnabled()) {
             log.trace("Retaining message: reqId={}, qos={}, topic={}, size={}",
-                reqId, message.getPubQoS(), topic, message.getPayload().size());
+                    reqId, message.getPubQoS(), topic, message.getPayload().size());
         }
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalRetainMessageSpaceBytes)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalRetainMessageSpaceBytes.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalRetainMessageSpaceBytes.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(RetainReply.Result.EXCEED_LIMIT);
         }
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalRetainTopics)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalRetainTopics.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalRetainTopics.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(RetainReply.Result.EXCEED_LIMIT);
         }
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalRetainedMessagesPerSeconds)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalRetainedMessagesPerSeconds.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalRetainedMessagesPerSeconds.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(RetainReply.Result.EXCEED_LIMIT);
         }
         if (!resourceThrottler.hasResource(clientInfo.getTenantId(), TotalRetainedBytesPerSecond)) {
             eventCollector.report(getLocal(OutOfTenantResource.class)
-                .reason(TotalRetainedBytesPerSecond.name())
-                .clientInfo(clientInfo));
+                    .reason(TotalRetainedBytesPerSecond.name())
+                    .clientInfo(clientInfo));
             return CompletableFuture.completedFuture(RetainReply.Result.EXCEED_LIMIT);
         }
         return sessionCtx.retainClient.retain(
@@ -1803,45 +1848,45 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                 message.getPayload(),
                 message.getExpiryInterval(),
                 clientInfo)
-            .thenApplyAsync(v -> {
-                if (log.isTraceEnabled()) {
-                    log.trace("Message retained: reqId={}, result={}", v.getReqId(), v.getResult());
-                }
-                switch (v.getResult()) {
-                    case RETAINED -> eventCollector.report(getLocal(MsgRetained.class)
-                        .reqId(v.getReqId())
-                        .topic(topic)
-                        .isLastWill(isLWT)
-                        .qos(message.getPubQoS())
-                        .size(message.getPayload().size())
-                        .clientInfo(clientInfo));
-                    case CLEARED -> eventCollector.report(getLocal(RetainMsgCleared.class)
-                        .reqId(v.getReqId())
-                        .isLastWill(false)
-                        .clientInfo(clientInfo)
-                        .topic(topic));
-                    case EXCEED_LIMIT, BACK_PRESSURE_REJECTED, TRY_LATER, ERROR ->
-                        eventCollector.report(getLocal(MsgRetainedError.class)
-                            .reqId(v.getReqId())
-                            .clientInfo(clientInfo)
-                            .topic(topic)
-                            .isLastWill(isLWT)
-                            .qos(message.getPubQoS())
-                            .payload(message.getPayload().asReadOnlyByteBuffer())
-                            .size(message.getPayload().size())
-                            .reason(v.getResult().name()));
-                    default -> eventCollector.report(getLocal(MsgRetainedError.class)
-                        .reqId(v.getReqId())
-                        .clientInfo(clientInfo)
-                        .topic(topic)
-                        .isLastWill(isLWT)
-                        .qos(message.getPubQoS())
-                        .payload(message.getPayload().asReadOnlyByteBuffer())
-                        .size(message.getPayload().size())
-                        .reason("Internal Error"));
-                }
-                return v.getResult();
-            }, ctx.executor());
+                .thenApplyAsync(v -> {
+                    if (log.isTraceEnabled()) {
+                        log.trace("Message retained: reqId={}, result={}", v.getReqId(), v.getResult());
+                    }
+                    switch (v.getResult()) {
+                        case RETAINED -> eventCollector.report(getLocal(MsgRetained.class)
+                                .reqId(v.getReqId())
+                                .topic(topic)
+                                .isLastWill(isLWT)
+                                .qos(message.getPubQoS())
+                                .size(message.getPayload().size())
+                                .clientInfo(clientInfo));
+                        case CLEARED -> eventCollector.report(getLocal(RetainMsgCleared.class)
+                                .reqId(v.getReqId())
+                                .isLastWill(false)
+                                .clientInfo(clientInfo)
+                                .topic(topic));
+                        case EXCEED_LIMIT, BACK_PRESSURE_REJECTED, TRY_LATER, ERROR ->
+                            eventCollector.report(getLocal(MsgRetainedError.class)
+                                    .reqId(v.getReqId())
+                                    .clientInfo(clientInfo)
+                                    .topic(topic)
+                                    .isLastWill(isLWT)
+                                    .qos(message.getPubQoS())
+                                    .payload(message.getPayload().asReadOnlyByteBuffer())
+                                    .size(message.getPayload().size())
+                                    .reason(v.getResult().name()));
+                        default -> eventCollector.report(getLocal(MsgRetainedError.class)
+                                .reqId(v.getReqId())
+                                .clientInfo(clientInfo)
+                                .topic(topic)
+                                .isLastWill(isLWT)
+                                .qos(message.getPubQoS())
+                                .payload(message.getPayload().asReadOnlyByteBuffer())
+                                .size(message.getPayload().size())
+                                .reason("Internal Error"));
+                    }
+                    return v.getResult();
+                }, ctx.executor());
     }
 
     private static class ConfirmingMessage {

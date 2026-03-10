@@ -116,4 +116,15 @@ public final class QUICUtils {
     public static String connectionId(Channel ch) {
         return connectionChannel(ch).id().asLongText();
     }
+
+    /**
+     * Set autoRead on the connection-level channel.
+     * For TCP: sets autoRead directly on the channel.
+     * For QUIC streams: sets autoRead on the parent QuicChannel,
+     * which provides connection-level backpressure affecting all streams.
+     */
+    public static void setAutoReadAll(Channel ch, boolean autoRead) {
+        Channel conn = connectionChannel(ch);
+        conn.config().setAutoRead(autoRead);
+    }
 }

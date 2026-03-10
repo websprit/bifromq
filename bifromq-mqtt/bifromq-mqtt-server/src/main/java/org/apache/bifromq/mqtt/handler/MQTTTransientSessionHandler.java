@@ -451,14 +451,31 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
             return;
         }
         Iterator<Map.Entry<Long, RoutedMessage>> itr = toBeSent.entrySet().iterator();
-        while (clientReceiveQuota() > 0 && itr.hasNext()) {
-            Map.Entry<Long, RoutedMessage> entry = itr.next();
-            long seq = entry.getKey();
-            RoutedMessage msg = entry.getValue();
-            sendConfirmableSubMessage(seq, msg);
-            nextSendSeq = seq + 1;
+        if (isMultiStream()) {
+            // Multi-stream: bucket messages by target stream, then flush each stream
+            // independently
+            Map<io.netty.channel.Channel, List<Map.Entry<Long, RoutedMessage>>> buckets = new HashMap<>();
+            while (clientReceiveQuota() > 0 && itr.hasNext()) {
+                Map.Entry<Long, RoutedMessage> entry = itr.next();
+                io.netty.channel.Channel stream = streamRouter.resolveStream(entry.getValue().topic());
+                buckets.computeIfAbsent(stream, k -> new ArrayList<>()).add(entry);
+                nextSendSeq = entry.getKey() + 1;
+            }
+            buckets.forEach((stream, entries) -> {
+                entries.forEach(e -> sendConfirmableSubMessage(e.getKey(), e.getValue()));
+                flushStream(stream);
+            });
+        } else {
+            // Single-stream / TCP: original behavior
+            while (clientReceiveQuota() > 0 && itr.hasNext()) {
+                Map.Entry<Long, RoutedMessage> entry = itr.next();
+                long seq = entry.getKey();
+                RoutedMessage msg = entry.getValue();
+                sendConfirmableSubMessage(seq, msg);
+                nextSendSeq = seq + 1;
+            }
+            flush(true);
         }
-        flush(true);
     }
 
     private void logInternalLatency(RoutedMessage message) {
