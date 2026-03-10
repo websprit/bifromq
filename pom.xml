@@ -125,6 +125,7 @@
         <log4j.version>2.25.3</log4j.version>
         <micrometer.version>1.11.12</micrometer.version>
         <netty.version>4.1.127.Final</netty.version>
+        <netty.quic.version>0.0.75.Final</netty.quic.version>
         <tcnative.version>2.0.73.Final</tcnative.version>
         <pcollections.version>4.0.2</pcollections.version>
         <pf4j.version>3.13.0</pf4j.version>
@@ -650,6 +651,40 @@
                 <type>pom</type>
                 <scope>import</scope>
                 <version>${netty.version}</version>
+            </dependency>
+            <!-- QUIC support -->
+            <dependency>
+                <groupId>io.netty.incubator</groupId>
+                <artifactId>netty-incubator-codec-classes-quic</artifactId>
+                <version>${netty.quic.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty.incubator</groupId>
+                <artifactId>netty-incubator-codec-native-quic</artifactId>
+                <version>${netty.quic.version}</version>
+                <classifier>linux-x86_64</classifier>
+                <scope>runtime</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty.incubator</groupId>
+                <artifactId>netty-incubator-codec-native-quic</artifactId>
+                <version>${netty.quic.version}</version>
+                <classifier>linux-aarch_64</classifier>
+                <scope>runtime</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty.incubator</groupId>
+                <artifactId>netty-incubator-codec-native-quic</artifactId>
+                <version>${netty.quic.version}</version>
+                <classifier>osx-x86_64</classifier>
+                <scope>runtime</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.netty.incubator</groupId>
+                <artifactId>netty-incubator-codec-native-quic</artifactId>
+                <version>${netty.quic.version}</version>
+                <classifier>osx-aarch_64</classifier>
+                <scope>runtime</scope>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>

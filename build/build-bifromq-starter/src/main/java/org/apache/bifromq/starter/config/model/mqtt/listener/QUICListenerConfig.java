@@ -17,20 +17,23 @@
  * under the License.
  */
 
-package org.apache.bifromq.mqtt;
+package org.apache.bifromq.starter.config.model.mqtt.listener;
 
-public interface IMQTTBrokerBuilder {
-    String brokerId();
+import lombok.Getter;
+import lombok.Setter;
+import org.apache.bifromq.starter.config.model.ServerSSLContextConfig;
 
-    ConnListenerBuilder.TCPConnListenerBuilder buildTcpConnListener();
-
-    ConnListenerBuilder.TLSConnListenerBuilder buildTLSConnListener();
-
-    ConnListenerBuilder.WSConnListenerBuilder buildWSConnListener();
-
-    ConnListenerBuilder.WSSConnListenerBuilder buildWSSConnListener();
-
-    QUICConnListenerBuilder buildQUICConnListener();
-
-    IMQTTBroker build();
+@Getter
+@Setter
+public class QUICListenerConfig {
+    private boolean enable = false;
+    private String host = "0.0.0.0";
+    private int port = 14567;
+    private ServerSSLContextConfig sslConfig;
+    // QUIC transport parameters
+    private long maxIdleTimeoutMs = 30000;
+    private long initialMaxData = 10000000;
+    private long initialMaxStreamDataBidiLocal = 1000000;
+    private long initialMaxStreamDataBidiRemote = 1000000;
+    private long initialMaxStreamsBidi = 100;
 }

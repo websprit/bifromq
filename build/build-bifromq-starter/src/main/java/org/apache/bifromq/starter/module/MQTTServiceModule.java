@@ -20,6 +20,7 @@
 package org.apache.bifromq.starter.module;
 
 import static org.apache.bifromq.starter.module.SSLUtil.buildServerSslContext;
+import static org.apache.bifromq.starter.module.SSLUtil.buildQuicSslContext;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
@@ -27,6 +28,7 @@ import com.google.inject.Provider;
 import com.google.inject.TypeLiteral;
 import jakarta.inject.Singleton;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.apache.bifromq.baserpc.server.RPCServerBuilder;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.inbox.client.IInboxClient;
@@ -41,6 +43,7 @@ import org.apache.bifromq.retain.client.IRetainClient;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.starter.config.StandaloneConfig;
 import org.apache.bifromq.starter.config.model.mqtt.MQTTServerConfig;
+import org.apache.bifromq.starter.config.model.mqtt.listener.QUICListenerConfig;
 
 public class MQTTServiceModule extends AbstractModule {
     @Override
@@ -66,52 +69,68 @@ public class MQTTServiceModule extends AbstractModule {
                 return Optional.empty();
             }
             IMQTTBrokerBuilder brokerBuilder = IMQTTBroker.builder()
-                .rpcServerBuilder(injector.getInstance(RPCServerBuilder.class))
-                .mqttBossELGThreads(serverConfig.getBossELGThreads())
-                .mqttWorkerELGThreads(serverConfig.getWorkerELGThreads())
-                .authProvider(injector.getInstance(AuthProviderManager.class))
-                .clientBalancer(injector.getInstance(ClientBalancerManager.class))
-                .eventCollector(injector.getInstance(EventCollectorManager.class))
-                .resourceThrottler(injector.getInstance(ResourceThrottlerManager.class))
-                .settingProvider(injector.getInstance(SettingProviderManager.class))
-                .distClient(injector.getInstance(IDistClient.class))
-                .inboxClient(injector.getInstance(IInboxClient.class))
-                .sessionDictClient(injector.getInstance(ISessionDictClient.class))
-                .retainClient(injector.getInstance(IRetainClient.class))
-                .connectTimeoutSeconds(serverConfig.getConnTimeoutSec())
-                .connectRateLimit(serverConfig.getMaxConnPerSec())
-                .disconnectRate(serverConfig.getMaxDisconnPerSec())
-                .readLimit(serverConfig.getMaxConnBandwidth())
-                .writeLimit(serverConfig.getMaxConnBandwidth())
-                .maxBytesInMessage(serverConfig.getMaxMsgByteSize())
-                .userPropsCustomizerFactoryConfig(serverConfig.getUserPropsCustomizerFactoryConfig());
+                    .rpcServerBuilder(injector.getInstance(RPCServerBuilder.class))
+                    .mqttBossELGThreads(serverConfig.getBossELGThreads())
+                    .mqttWorkerELGThreads(serverConfig.getWorkerELGThreads())
+                    .authProvider(injector.getInstance(AuthProviderManager.class))
+                    .clientBalancer(injector.getInstance(ClientBalancerManager.class))
+                    .eventCollector(injector.getInstance(EventCollectorManager.class))
+                    .resourceThrottler(injector.getInstance(ResourceThrottlerManager.class))
+                    .settingProvider(injector.getInstance(SettingProviderManager.class))
+                    .distClient(injector.getInstance(IDistClient.class))
+                    .inboxClient(injector.getInstance(IInboxClient.class))
+                    .sessionDictClient(injector.getInstance(ISessionDictClient.class))
+                    .retainClient(injector.getInstance(IRetainClient.class))
+                    .connectTimeoutSeconds(serverConfig.getConnTimeoutSec())
+                    .connectRateLimit(serverConfig.getMaxConnPerSec())
+                    .disconnectRate(serverConfig.getMaxDisconnPerSec())
+                    .readLimit(serverConfig.getMaxConnBandwidth())
+                    .writeLimit(serverConfig.getMaxConnBandwidth())
+                    .maxBytesInMessage(serverConfig.getMaxMsgByteSize())
+                    .userPropsCustomizerFactoryConfig(serverConfig.getUserPropsCustomizerFactoryConfig());
             if (serverConfig.getTcpListener().isEnable()) {
                 brokerBuilder.buildTcpConnListener()
-                    .host(serverConfig.getTcpListener().getHost())
-                    .port(serverConfig.getTcpListener().getPort())
-                    .buildListener();
+                        .host(serverConfig.getTcpListener().getHost())
+                        .port(serverConfig.getTcpListener().getPort())
+                        .buildListener();
             }
             if (serverConfig.getTlsListener().isEnable()) {
                 brokerBuilder.buildTLSConnListener()
-                    .host(serverConfig.getTlsListener().getHost())
-                    .port(serverConfig.getTlsListener().getPort())
-                    .sslContext(buildServerSslContext(serverConfig.getTlsListener().getSslConfig()))
-                    .buildListener();
+                        .host(serverConfig.getTlsListener().getHost())
+                        .port(serverConfig.getTlsListener().getPort())
+                        .sslContext(buildServerSslContext(serverConfig.getTlsListener().getSslConfig()))
+                        .buildListener();
             }
             if (serverConfig.getWsListener().isEnable()) {
                 brokerBuilder.buildWSConnListener()
-                    .host(serverConfig.getWsListener().getHost())
-                    .port(serverConfig.getWsListener().getPort())
-                    .path(serverConfig.getWsListener().getWsPath())
-                    .buildListener();
+                        .host(serverConfig.getWsListener().getHost())
+                        .port(serverConfig.getWsListener().getPort())
+                        .path(serverConfig.getWsListener().getWsPath())
+                        .buildListener();
             }
             if (serverConfig.getWssListener().isEnable()) {
                 brokerBuilder.buildWSSConnListener()
-                    .host(serverConfig.getWssListener().getHost())
-                    .port(serverConfig.getWssListener().getPort())
-                    .path(serverConfig.getWssListener().getWsPath())
-                    .sslContext(buildServerSslContext(serverConfig.getWssListener().getSslConfig()))
-                    .buildListener();
+                        .host(serverConfig.getWssListener().getHost())
+                        .port(serverConfig.getWssListener().getPort())
+                        .path(serverConfig.getWssListener().getWsPath())
+                        .sslContext(buildServerSslContext(serverConfig.getWssListener().getSslConfig()))
+                        .buildListener();
+            }
+            QUICListenerConfig quicListenerConfig = serverConfig.getQuicListener();
+            if (quicListenerConfig.isEnable()) {
+                if (quicListenerConfig.getSslConfig() == null) {
+                    throw new IllegalArgumentException("QUIC listener requires SSL configuration (TLS is mandatory)");
+                }
+                brokerBuilder.buildQUICConnListener()
+                        .host(quicListenerConfig.getHost())
+                        .port(quicListenerConfig.getPort())
+                        .sslContext(buildQuicSslContext(quicListenerConfig.getSslConfig()))
+                        .maxIdleTimeout(quicListenerConfig.getMaxIdleTimeoutMs(), TimeUnit.MILLISECONDS)
+                        .initialMaxData(quicListenerConfig.getInitialMaxData())
+                        .initialMaxStreamDataBidiLocal(quicListenerConfig.getInitialMaxStreamDataBidiLocal())
+                        .initialMaxStreamDataBidiRemote(quicListenerConfig.getInitialMaxStreamDataBidiRemote())
+                        .initialMaxStreamsBidi(quicListenerConfig.getInitialMaxStreamsBidi())
+                        .buildListener();
             }
             return Optional.of(brokerBuilder.build());
         }

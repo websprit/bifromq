@@ -27,6 +27,8 @@ import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslProvider;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.incubator.codec.quic.QuicSslContext;
+import io.netty.incubator.codec.quic.QuicSslContextBuilder;
 import java.security.Provider;
 import java.security.Security;
 import org.apache.bifromq.starter.config.model.ServerSSLContextConfig;
@@ -55,9 +57,9 @@ public class SSLUtil {
         try {
             SslProvider sslProvider = defaultSslProvider();
             SslContextBuilder sslCtxBuilder = SslContextBuilder
-                .forServer(loadFile(config.getCertFile()), loadFile(config.getKeyFile()))
-                .clientAuth(config.getClientAuth())
-                .sslProvider(sslProvider);
+                    .forServer(loadFile(config.getCertFile()), loadFile(config.getKeyFile()))
+                    .clientAuth(config.getClientAuth())
+                    .sslProvider(sslProvider);
             if (Strings.isNullOrEmpty(config.getTrustCertsFile())) {
                 sslCtxBuilder.trustManager(InsecureTrustManagerFactory.INSTANCE);
             } else {
@@ -69,6 +71,25 @@ public class SSLUtil {
             return sslCtxBuilder.build();
         } catch (Throwable e) {
             throw new RuntimeException("Fail to initialize server SSLContext", e);
+        }
+    }
+
+    /**
+     * Build a QuicSslContext for QUIC transport.
+     * QUIC mandates TLS 1.3 and uses ALPN protocol "mqtt".
+     */
+    public static QuicSslContext buildQuicSslContext(ServerSSLContextConfig config) {
+        try {
+            QuicSslContextBuilder quicSslCtxBuilder = QuicSslContextBuilder
+                    .forServer(loadFile(config.getCertFile()), null, loadFile(config.getKeyFile()))
+                    .applicationProtocols("mqtt")
+                    .clientAuth(config.getClientAuth());
+            if (!Strings.isNullOrEmpty(config.getTrustCertsFile())) {
+                quicSslCtxBuilder.trustManager(loadFile(config.getTrustCertsFile()));
+            }
+            return quicSslCtxBuilder.build();
+        } catch (Throwable e) {
+            throw new RuntimeException("Fail to initialize QUIC SSLContext", e);
         }
     }
 }

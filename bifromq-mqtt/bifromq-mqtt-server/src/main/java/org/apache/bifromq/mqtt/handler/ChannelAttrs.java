@@ -47,6 +47,14 @@ public class ChannelAttrs {
                 return null;
             }
         }
+        // QUIC: TLS is at connection level, check parent QuicChannel's stored certs
+        if (channel instanceof io.netty.incubator.codec.quic.QuicStreamChannel streamChannel) {
+            Certificate[] certs = streamChannel.parent()
+                    .attr(org.apache.bifromq.mqtt.handler.quic.QUICConnectionHandler.QUIC_CLIENT_CERTS).get();
+            if (certs != null && certs.length > 0) {
+                return (X509Certificate) certs[0];
+            }
+        }
         return null;
     }
 
@@ -60,7 +68,7 @@ public class ChannelAttrs {
 
     public static void setMaxPayload(int maxUserPayloadSize, ChannelHandlerContext ctx) {
         ctx.channel().pipeline().replace(ctx.pipeline().get(MqttDecoder.class.getName()), MqttDecoder.class.getName(),
-            new MqttDecoder(maxUserPayloadSize));
+                new MqttDecoder(maxUserPayloadSize));
         if (maxUserPayloadSize > ctx.channel().config().getWriteBufferHighWaterMark()) {
             ctx.channel().config().setWriteBufferHighWaterMark(maxUserPayloadSize + 1024);
             ctx.channel().config().setWriteBufferLowWaterMark(maxUserPayloadSize / 2);

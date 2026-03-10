@@ -34,6 +34,7 @@ import org.apache.bifromq.starter.config.model.mqtt.listener.TCPListenerConfig;
 import org.apache.bifromq.starter.config.model.mqtt.listener.TLSListenerConfig;
 import org.apache.bifromq.starter.config.model.mqtt.listener.WSListenerConfig;
 import org.apache.bifromq.starter.config.model.mqtt.listener.WSSListenerConfig;
+import org.apache.bifromq.starter.config.model.mqtt.listener.QUICListenerConfig;
 import org.apache.bifromq.starter.config.model.serde.StructMapDeserializer;
 import org.apache.bifromq.starter.config.model.serde.StructMapSerializer;
 
@@ -65,4 +66,7 @@ public class MQTTServerConfig {
     @JsonSetter(nulls = Nulls.SKIP)
     @JsonMerge
     private WSSListenerConfig wssListener = new WSSListenerConfig();
+    @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
+    private QUICListenerConfig quicListener = new QUICListenerConfig();
 }

@@ -81,6 +81,8 @@ public class MQTTBrokerBuilder implements IMQTTBrokerBuilder {
     ConnListenerBuilder.WSConnListenerBuilder wsListenerBuilder;
     @Setter(AccessLevel.NONE)
     ConnListenerBuilder.WSSConnListenerBuilder wssListenerBuilder;
+    @Setter(AccessLevel.NONE)
+    QUICConnListenerBuilder quicListenerBuilder;
 
     @Override
     public ConnListenerBuilder.TCPConnListenerBuilder buildTcpConnListener() {
@@ -112,6 +114,14 @@ public class MQTTBrokerBuilder implements IMQTTBrokerBuilder {
             wssListenerBuilder = new ConnListenerBuilder.WSSConnListenerBuilder(this);
         }
         return wssListenerBuilder;
+    }
+
+    @Override
+    public QUICConnListenerBuilder buildQUICConnListener() {
+        if (quicListenerBuilder == null) {
+            quicListenerBuilder = new QUICConnListenerBuilder(this);
+        }
+        return quicListenerBuilder;
     }
 
     public MQTTBrokerBuilder distClient(IDistClient distClient) {

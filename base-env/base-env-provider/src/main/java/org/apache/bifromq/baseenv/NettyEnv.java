@@ -39,7 +39,8 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 
 /**
- * NettyEnv is a utility class that provides methods to create EventLoopGroup and determine the appropriate channel
+ * NettyEnv is a utility class that provides methods to create EventLoopGroup
+ * and determine the appropriate channel
  * classes.
  */
 public class NettyEnv {
@@ -60,10 +61,11 @@ public class NettyEnv {
     }
 
     /**
-     * Create an EventLoopGroup with a specified number of threads and a custom name.
+     * Create an EventLoopGroup with a specified number of threads and a custom
+     * name.
      *
      * @param nThreads The number of threads in the EventLoopGroup.
-     * @param name The name to use for the threads.
+     * @param name     The name to use for the threads.
      *
      * @return An EventLoopGroup instance.
      */
@@ -79,7 +81,8 @@ public class NettyEnv {
     }
 
     /**
-     * Get the appropriate SocketChannel class based on the availability of Epoll or KQueue.
+     * Get the appropriate SocketChannel class based on the availability of Epoll or
+     * KQueue.
      *
      * @return The SocketChannel class.
      */
@@ -94,7 +97,8 @@ public class NettyEnv {
     }
 
     /**
-     * Get the appropriate ServerSocketChannel class based on the availability of Epoll or KQueue.
+     * Get the appropriate ServerSocketChannel class based on the availability of
+     * Epoll or KQueue.
      *
      * @return The ServerSocketChannel class.
      */
@@ -109,9 +113,10 @@ public class NettyEnv {
     }
 
     /**
-     * Determine the appropriate SocketChannel class based on the provided EventLoopGroup.
+     * Determine the appropriate SocketChannel class based on the provided
+     * EventLoopGroup.
      *
-     * @param eventLoopGroup  The EventLoopGroup to check.
+     * @param eventLoopGroup The EventLoopGroup to check.
      *
      * @return The SocketChannel class.
      */
@@ -126,13 +131,14 @@ public class NettyEnv {
     }
 
     /**
-     * Determine the appropriate ServerSocketChannel class based on the provided EventLoopGroup.
+     * Determine the appropriate ServerSocketChannel class based on the provided
+     * EventLoopGroup.
      *
      * @param eventLoopGroup The EventLoopGroup to check.
      * @return The ServerSocketChannel class.
      */
     public static Class<? extends ServerSocketChannel> determineServerSocketChannelClass(
-        EventLoopGroup eventLoopGroup) {
+            EventLoopGroup eventLoopGroup) {
         if (eventLoopGroup instanceof EpollEventLoopGroup) {
             return EpollServerSocketChannel.class;
         }
@@ -143,7 +149,8 @@ public class NettyEnv {
     }
 
     /**
-     * Get the appropriate DatagramChannel class based on the availability of Epoll or KQueue.
+     * Get the appropriate DatagramChannel class based on the availability of Epoll
+     * or KQueue.
      *
      * @return The DatagramChannel class.
      */
@@ -152,6 +159,23 @@ public class NettyEnv {
             return EpollDatagramChannel.class;
         }
         if (KQueue.isAvailable()) {
+            return KQueueDatagramChannel.class;
+        }
+        return NioDatagramChannel.class;
+    }
+
+    /**
+     * Determine the appropriate DatagramChannel class based on the provided
+     * EventLoopGroup.
+     *
+     * @param eventLoopGroup The EventLoopGroup to check.
+     * @return The DatagramChannel class.
+     */
+    public static Class<? extends DatagramChannel> determineDatagramChannelClass(EventLoopGroup eventLoopGroup) {
+        if (eventLoopGroup instanceof EpollEventLoopGroup) {
+            return EpollDatagramChannel.class;
+        }
+        if (eventLoopGroup instanceof KQueueEventLoopGroup) {
             return KQueueDatagramChannel.class;
         }
         return NioDatagramChannel.class;
