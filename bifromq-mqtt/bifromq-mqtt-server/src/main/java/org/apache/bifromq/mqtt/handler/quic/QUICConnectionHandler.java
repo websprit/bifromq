@@ -63,6 +63,13 @@ public class QUICConnectionHandler extends ChannelInboundHandlerAdapter {
     public static final AttributeKey<java.security.cert.Certificate[]> QUIC_CLIENT_CERTS = AttributeKey
             .valueOf("QUIC_CLIENT_CERTS");
 
+    /**
+     * Attribute key to store the QUICStreamRouter on the QuicChannel.
+     * Stream handlers retrieve this to enable multi-stream routing.
+     */
+    public static final AttributeKey<QUICStreamRouter> QUIC_STREAM_ROUTER = AttributeKey
+            .valueOf("QUIC_STREAM_ROUTER");
+
     private final MQTTSessionContext sessionContext;
 
     public QUICConnectionHandler(MQTTSessionContext sessionContext) {
@@ -95,6 +102,11 @@ public class QUICConnectionHandler extends ChannelInboundHandlerAdapter {
         } catch (javax.net.ssl.SSLPeerUnverifiedException e) {
             log.trace("No client certificate for QUIC connection: {}", remoteAddr);
         }
+
+        // Create QUICStreamRouter for multi-stream mode
+        QUICStreamRouter streamRouter = new QUICStreamRouter(quicChannel);
+        quicChannel.attr(QUIC_STREAM_ROUTER).set(streamRouter);
+        log.debug("QUICStreamRouter created for connection: {}", remoteAddr);
 
         // Store session context at connection level (fixes #1)
         // This will be propagated to stream channels in QUICStreamInitializer

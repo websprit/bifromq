@@ -23,6 +23,7 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.handler.codec.mqtt.MqttDecoder;
 import io.netty.handler.codec.mqtt.MqttEncoder;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
+import io.netty.util.AttributeKey;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.mqtt.handler.ChannelAttrs;
 import org.apache.bifromq.mqtt.handler.ConditionalRejectHandler;
@@ -59,6 +60,13 @@ import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 @Slf4j
 public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel> {
 
+    /**
+     * Attribute key to store the QUICStreamRouter on each stream channel,
+     * so MQTTConnectHandler can retrieve it after session creation.
+     */
+    public static final AttributeKey<QUICStreamRouter> STREAM_ROUTER_KEY = AttributeKey
+            .valueOf("QUIC_STREAM_ROUTER_ON_STREAM");
+
     private final int connectTimeoutSeconds;
     private final int maxBytesInMessage;
     private final IEventCollector eventCollector;
@@ -86,6 +94,28 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
         java.net.InetSocketAddress peerAddr = ch.parent().attr(QUICConnectionHandler.QUIC_PEER_ADDR).get();
         if (peerAddr != null) {
             ch.attr(ChannelAttrs.PEER_ADDR).set(peerAddr);
+        }
+
+        // Propagate QUICStreamRouter from parent QuicChannel to stream attribute
+        QUICStreamRouter router = ch.parent().attr(QUICConnectionHandler.QUIC_STREAM_ROUTER).get();
+        if (router != null) {
+            ch.attr(STREAM_ROUTER_KEY).set(router);
+            // Register this stream with the router based on stream ID
+            long streamId = ch.streamId();
+            if (streamId == 0) {
+                // Stream 0 is the control stream
+                router.setControlStream(ch);
+                log.debug("Control stream registered: streamId={}", streamId);
+            } else {
+                // Data streams: map QUIC stream ID to bucket index
+                // QUIC bidirectional stream IDs: 0, 4, 8, 12, ... (client-initiated)
+                // We use streamId/4 - 1 to get bucket index (skip stream 0)
+                int bucketIndex = (int) ((streamId / 4) - 1) % router.dataStreamCount();
+                if (bucketIndex >= 0 && bucketIndex < router.dataStreamCount()) {
+                    router.setDataStream(bucketIndex, ch);
+                    log.debug("Data stream registered: streamId={}, bucket={}", streamId, bucketIndex);
+                }
+            }
         }
 
         // Build pipeline with same handler names as TCP pipeline (fixes #10)
