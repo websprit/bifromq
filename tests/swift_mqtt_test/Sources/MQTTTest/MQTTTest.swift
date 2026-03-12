@@ -9,6 +9,102 @@
 import MQTT
 import Foundation
 
+let expectedMessageCount = 10
+var summaryPrinted = false
+var gracefulShutdownStarted = false
+var producerCompleted = false
+let gracefulExitDelay: TimeInterval = 1.5
+
+func isExpectedShutdownError(_ error: Error) -> Bool {
+    guard gracefulShutdownStarted else { return false }
+    let description = String(describing: error)
+    return description.contains("MQTTError.decodeError(streamIsComplete)")
+        || description.contains("MQTTError.clientClose(normal)")
+}
+
+func isExpectedClientClose(_ status: Status) -> Bool {
+    guard gracefulShutdownStarted else { return false }
+    guard case .closed(let reason) = status else { return false }
+    return reason?.description == "MQTTError.clientClose(normal)"
+}
+
+func finishTest(consumer: MQTTConsumer?, producer: MQTTProducer?, exitCode: Int) {
+    guard !summaryPrinted else { return }
+    summaryPrinted = true
+    let processExitCode = Int32(exitCode)
+
+    let rx = consumer?.messageCount ?? 0
+    let tx = producer?.publishCount ?? 0
+    print("")
+    print("╔════════════════════════════════════════════════════════════╗")
+    print("║  Test Summary                                             ║")
+    print("║  Consumer received: \(rx) messages")
+    print("║  Producer sent:     \(tx) messages")
+    if rx == tx && tx > 0 {
+        print("║  ✅ PASS — all messages delivered!")
+    } else if tx == 0 {
+        print("║  ❌ FAIL — no messages were sent (connection issue)")
+    } else {
+        print("║  ⚠️  Partial — \(rx)/\(tx) messages received")
+    }
+    print("╚════════════════════════════════════════════════════════════╝")
+
+    guard !gracefulShutdownStarted else {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(processExitCode) }
+        return
+    }
+
+    gracefulShutdownStarted = true
+    let closeGroup = DispatchGroup()
+    var scheduledClose = false
+
+    if let consumer {
+        scheduledClose = true
+        closeGroup.enter()
+        consumer.close().then { _ in
+            closeGroup.leave()
+        }.catch { error -> Any? in
+            print("[Consumer] close error: \(error)")
+            closeGroup.leave()
+            return nil
+        }
+    }
+    if let producer {
+        scheduledClose = true
+        closeGroup.enter()
+        producer.close().then { _ in
+            closeGroup.leave()
+        }.catch { error -> Any? in
+            print("[Producer] close error: \(error)")
+            closeGroup.leave()
+            return nil
+        }
+    }
+
+    if scheduledClose {
+        closeGroup.notify(queue: .main) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + gracefulExitDelay) {
+                exit(processExitCode)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+            exit(processExitCode)
+        }
+    } else {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            exit(processExitCode)
+        }
+    }
+}
+
+func maybeFinishEarly(consumer: MQTTConsumer?, producer: MQTTProducer?, mode: String) {
+    guard mode == "both", !summaryPrinted else { return }
+    let rx = consumer?.messageCount ?? 0
+    let tx = producer?.publishCount ?? 0
+    guard producerCompleted, rx >= expectedMessageCount, tx >= expectedMessageCount else { return }
+    finishTest(consumer: consumer, producer: producer, exitCode: 0)
+}
+
 // MARK: - URL 解析
 
 func makeEndpoint(from urlStr: String) -> (Endpoint, Bool) {
@@ -42,6 +138,7 @@ func makeEndpoint(from urlStr: String) -> (Endpoint, Bool) {
 final class MQTTConsumer: MQTTClient.V3, @unchecked Sendable {
     let url: String
     var messageCount = 0
+    var onMessageCountUpdated: (() -> Void)?
 
     init(url: String) {
         self.url = url
@@ -59,7 +156,11 @@ extension MQTTConsumer: MQTTDelegate {
         print("[Consumer] Status: \(prev) → \(status)")
         guard status == .opened else {
             if case .closed(let reason) = status {
-                print("[Consumer] ❌ Closed: \(reason?.description ?? "no reason")")
+                if isExpectedClientClose(status) {
+                    print("[Consumer] ✅ Closed cleanly")
+                } else {
+                    print("[Consumer] ❌ Closed: \(reason?.description ?? "no reason")")
+                }
             }
             return
         }
@@ -70,6 +171,9 @@ extension MQTTConsumer: MQTTDelegate {
     }
 
     func mqtt(_ mqtt: MQTTClient, didReceive error: any Error) {
+        if isExpectedShutdownError(error) {
+            return
+        }
         print("[Consumer] ⚠️  Error: \(error)")
     }
 
@@ -77,6 +181,7 @@ extension MQTTConsumer: MQTTDelegate {
         messageCount += 1
         let text = String(data: message.payload, encoding: .utf8) ?? "(binary)"
         print("[Consumer] 📥 #\(messageCount)  topic=\(message.topic)  payload=\(text)")
+        onMessageCountUpdated?()
     }
 }
 
@@ -86,6 +191,7 @@ final class MQTTProducer: MQTTClient.V3, @unchecked Sendable {
     let url: String
     var publishCount = 0
     var timer: Timer?
+    var onPublishCountUpdated: (() -> Void)?
 
     static let messages: [(topic: String, payload: String)] = [
         ("sensor/temp",     #"{"value":23.5,"unit":"C"}"#),
@@ -110,7 +216,10 @@ final class MQTTProducer: MQTTClient.V3, @unchecked Sendable {
             guard let self = self else { return }
             if self.publishCount >= 10 {
                 self.timer?.invalidate()
+                self.timer = nil
+                producerCompleted = true
                 print("[Producer] ✅ Done — published \(self.publishCount) messages")
+                self.onPublishCountUpdated?()
                 return
             }
             let m = Self.messages[self.publishCount % Self.messages.count]
@@ -118,6 +227,7 @@ final class MQTTProducer: MQTTClient.V3, @unchecked Sendable {
             self.publish(to: m.topic, payload: text, qos: .atMostOnce)
             print("[Producer] 📤 #\(self.publishCount)  topic=\(m.topic)")
             self.publishCount += 1
+            self.onPublishCountUpdated?()
         }
     }
 }
@@ -128,7 +238,11 @@ extension MQTTProducer: MQTTDelegate {
         guard status == .opened else {
             if case .closed(let reason) = status {
                 timer?.invalidate()
-                print("[Producer] ❌ Closed: \(reason?.description ?? "no reason")")
+                if isExpectedClientClose(status) {
+                    print("[Producer] ✅ Closed cleanly")
+                } else {
+                    print("[Producer] ❌ Closed: \(reason?.description ?? "no reason")")
+                }
             }
             return
         }
@@ -137,6 +251,9 @@ extension MQTTProducer: MQTTDelegate {
     }
 
     func mqtt(_ mqtt: MQTTClient, didReceive error: any Error) {
+        if isExpectedShutdownError(error) {
+            return
+        }
         print("[Producer] ⚠️  Error: \(error)")
     }
 
@@ -164,6 +281,9 @@ var producer: MQTTProducer?
 
 if mode == "consumer" || mode == "both" {
     consumer = MQTTConsumer(url: urlStr)
+    consumer?.onMessageCountUpdated = {
+        maybeFinishEarly(consumer: consumer, producer: producer, mode: mode)
+    }
     consumer?.open(Identity(UUID().uuidString, username: "DevOnly/consumer"))
 }
 
@@ -171,6 +291,9 @@ if mode == "producer" || mode == "both" {
     let delay: Double = (mode == "both") ? 3.0 : 0.0
     DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
         producer = MQTTProducer(url: urlStr)
+        producer?.onPublishCountUpdated = {
+            maybeFinishEarly(consumer: consumer, producer: producer, mode: mode)
+        }
         producer?.open(Identity(UUID().uuidString, username: "DevOnly/producer"))
     }
 }
@@ -178,24 +301,7 @@ if mode == "producer" || mode == "both" {
 // 运行 45 秒后打印摘要并退出
 DispatchQueue.main.asyncAfter(deadline: .now() + 45.0) {
     let rx = consumer?.messageCount ?? 0
-    let tx = producer?.publishCount ?? 0
-    print("")
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║  Test Summary                                             ║")
-    print("║  Consumer received: \(rx) messages")
-    print("║  Producer sent:     \(tx) messages")
-    if rx == tx && tx > 0 {
-        print("║  ✅ PASS — all messages delivered!")
-    } else if tx == 0 {
-        print("║  ❌ FAIL — no messages were sent (connection issue)")
-    } else {
-        print("║  ⚠️  Partial — \(rx)/\(tx) messages received")
-    }
-    print("╚════════════════════════════════════════════════════════════╝")
-
-    consumer?.close()
-    producer?.close()
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { exit(rx > 0 ? 0 : 1) }
+    finishTest(consumer: consumer, producer: producer, exitCode: rx > 0 ? 0 : 1)
 }
 
 RunLoop.main.run()

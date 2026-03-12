@@ -1,5 +1,0 @@
-FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y git cmake ninja-build gcc g++ pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
-RUN cd /opt && git clone https://github.com/nanomq/NanoSDK && cd NanoSDK && git submodule update --init --recursive
-RUN cd /opt/NanoSDK && mkdir build && cd build && cmake -G Ninja -DBUILD_SHARED_LIBS=OFF -DNNG_ENABLE_QUIC=ON .. && ninja
-CMD ["find", "/opt/NanoSDK/build", "-name", "*.a"]

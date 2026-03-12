@@ -1,0 +1,189 @@
+//
+//  Client.v5.swift
+//  swift-mqtt
+//
+//  Created by supertext on 2025/4/14.
+//
+
+import Foundation
+
+extension MQTTClient{
+    open class V5:MQTTClient, @unchecked Sendable{
+        /// Initial v5 client object
+        ///
+        /// - Parameters:
+        ///   - endpoint:The network endpoint
+        public init(_ endpoint:Endpoint) {
+            super.init(endpoint, version: .v5_0)
+        }
+    }
+}
+
+extension MQTTClient.V5{
+    /// Publish message to topic
+    ///
+    /// - Parameters:
+    ///    - topic: Topic name on which the message is published
+    ///    - payload: Message payload
+    ///    - qos: Quality of Service for message.
+    ///    - retain: Whether this is a retained message.
+    ///    - properties: properties to attach to publish message see ``Property.Publish``
+    ///
+    /// - Returns: `Promise<Puback?>` waiting for publish to complete.
+    /// Depending on `QoS` setting the promise will complete  after message is sent, when `PUBACK` is received or when `PUBREC` and following `PUBCOMP` are received.
+    /// `QoS0` retrun nil. `QoS1` and above return an `Puback` which contains a `code` and `properties`
+    /// - Note: When the QOS value is greater than 0, the message will keep retrying until it succeeds or stops retrying. Only then will the promise be done.
+    @discardableResult
+    @preconcurrency
+    final public func publish(to topic:String,payload:String,qos:MQTTQoS = .atLeastOnce, retain:Bool = false,properties:Properties = [])->Promise<Puback?>{
+        let data = payload.data(using: .utf8) ?? Data()
+        return publish(to:topic, payload: data,qos: qos,retain: retain,properties: properties)
+    }
+    /// Publish message to topic
+    ///
+    /// - Parameters:
+    ///    - topic: Topic name on which the message is published
+    ///    - payload: Message payload
+    ///    - qos: Quality of Service for message.
+    ///    - retain: Whether this is a retained message.
+    ///    - properties: properties to attach to publish message see ``Property.Publish``
+    ///
+    /// - Returns: `Promise<Puback?>` waiting for publish to complete.
+    /// Depending on `QoS` setting the promise will complete  after message is sent, when `PUBACK` is received or when `PUBREC` and following `PUBCOMP` are received.
+    /// `QoS0` retrun nil. `QoS1` and above return an `Puback` which contains a `code` and `properties`
+    /// - Note: When the QOS value is greater than 0, the message will keep retrying until it succeeds or stops retrying. Only then will the `promise` be done.
+    @discardableResult
+    @preconcurrency
+    final public func publish(to topic:String,payload:Data,qos:MQTTQoS = .atLeastOnce, retain:Bool = false,properties:Properties = []) ->Promise<Puback?> {
+        let message = Message(qos: qos, dup: false, topic: topic, retain: retain, payload: payload, properties: properties)
+        return self.publish(packet: PublishPacket(id: nextPacketId(), message: message))
+    }
+    /// Subscribe to topic
+    ///
+    /// - Parameters:
+    ///    - topic: Subscription topic
+    ///    - properties: properties to attach to subscribe message
+    ///
+    /// - Returns: `Promise<Suback>` waiting for subscribe to complete. Will wait for `SUBACK` message from server and
+    ///     return its contents
+    @discardableResult
+    @preconcurrency
+    final public func subscribe(to topic:String,qos:MQTTQoS = .atLeastOnce,properties:Properties = [])->Promise<Suback>{
+        return self.subscribe(to: [Subscribe(topic, qos: qos)], properties: properties)
+    }
+    /// Subscribe to topic
+    ///
+    /// - Parameters:
+    ///    - subscriptions: Subscription infos
+    ///    - properties: properties to attach to subscribe message
+    ///
+    /// - Returns: `Promise<Suback>` waiting for subscribe to complete. Will wait for `SUBACK` message from server and
+    ///     return its contents
+    @discardableResult
+    @preconcurrency
+    final public func subscribe(to subscriptions:[Subscribe],properties:Properties = [])->Promise<Suback>{
+        let packet = SubscribePacket(id: nextPacketId(), properties: properties, subscriptions: subscriptions)
+        return self.subscribe(packet: packet).then { $0.suback() }
+    }
+    
+    /// Unsubscribe from topic
+    /// - Parameters:
+    ///   - topic: Topic to unsubscribe from
+    ///   - properties: properties to attach to unsubscribe message
+    /// - Returns: `Promise<Unsuback>` waiting for unsubscribe to complete. Will wait for `UNSUBACK` message from server and
+    ///     return its contents
+    @discardableResult
+    @preconcurrency
+    final public func unsubscribe(from topic:String,properties:Properties = []) -> Promise<Unsuback> {
+        return unsubscribe(from:[topic], properties: properties)
+    }
+    
+    /// Unsubscribe from topic
+    /// - Parameters:
+    ///   - topics: List of topic to unsubscribe from
+    ///   - properties: properties to attach to unsubscribe message  see``Property.Subsci``
+    /// - Returns: `Promise<Unsuback>` waiting for unsubscribe to complete. Will wait for `UNSUBACK` message from server and
+    ///     return its contents
+    @discardableResult
+    @preconcurrency
+    final public func unsubscribe(from topics:[String],properties:Properties = []) -> Promise<Unsuback> {
+        let packet = UnsubscribePacket(id: nextPacketId(), subscriptions: topics, properties: properties)
+        return self.unsubscribe(packet: packet).then { $0.unsuback() }
+    }
+
+
+    /// Connect to MQTT server
+    ///
+    /// If `cleanStart` is set to false the Server MUST resume communications with the Client based on
+    /// state from the current Session (as identified by the Client identifier). If there is no Session
+    /// associated with the Client identifier the Server MUST create a new Session. The Client and Server
+    /// MUST store the Session after the Client and Server are disconnected. If set to true then the
+    /// Client and Server MUST discard any previous Session and start a new one
+    ///
+    /// - Parameters:
+    ///   - identity: The user identity to be pack into the `CONNECT` Packet
+    ///   - will: Publish message to be posted as soon as connection is made。 properties see ``Property.Publish``
+    ///   - cleanStart: should we start with a new session
+    ///   - properties: properties to attach to connect message. see ``Property.Connect``
+    ///   - authflow: The authentication workflow. This is currently unimplemented.
+    /// - Returns: `Promise<Connack>` to be updated with connack
+    ///
+    @discardableResult
+    @preconcurrency
+    final public func open(
+        _  identity:Identity,
+        will: (topic: String, payload: Data, retain: Bool, properties: Properties)? = nil,
+        cleanStart: Bool = true,
+        properties: Properties = [],
+        authflow: Authflow? = nil
+    ) -> Promise<Connack> {
+        let publish = will.map {
+            Message(
+                qos: .atMostOnce,
+                dup: false,
+                topic: $0.topic,
+                retain: $0.retain,
+                payload: $0.payload,
+                properties: $0.properties
+            )
+        }
+        var properties = properties
+        if cleanStart == false {
+            properties.append(.sessionExpiryInterval(0xFFFF_FFFF))
+        }
+        let packet = ConnectPacket(
+            cleanSession: cleanStart,
+            keepAlive: config.keepAlive,
+            clientId: identity.clientId,
+            username: identity.username,
+            password: identity.password,
+            properties: properties,
+            will: publish
+        )
+        self.identity = identity
+        return self.open(packet, authflow: authflow).then{ $0.ack() }
+    }
+    /// Close from server
+    /// - Parameters:
+    ///   - code: The close reason code send to the server
+    ///   - properties: The close properties send to the server. use ``Property.Connect``
+    /// - Returns: `Promise<Void>` waiting on disconnect message to be sent
+    ///
+    @discardableResult
+    @preconcurrency
+    final public func close(_ code:ResultCode.Disconnect = .normal ,properties:Properties = [])->Promise<Void>{
+        self._close(code,properties: properties)
+    }
+    /// Re-authenticate with server
+    ///
+    /// - Parameters:
+    ///   - properties: properties to attach to auth packet. Must include `authenticationMethod`, use ``Property.Auth``
+    ///   - authflow: Respond to auth packets from server
+    /// - Returns: `Promise<Auth>` final auth packet returned from server
+    ///
+    @discardableResult
+    @preconcurrency
+    final public func auth(_ properties: Properties, authflow: Authflow? = nil) -> Promise<Auth> {
+        self.auth(properties: properties, authflow: authflow)
+    }
+}

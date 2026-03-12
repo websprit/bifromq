@@ -7,7 +7,7 @@ let package = Package(
         .macOS(.v13)
     ],
     dependencies: [
-        .package(url: "https://github.com/emqx/swift-mqtt.git", from: "1.5.0"),
+        .package(path: "Vendor/swift-mqtt"),
     ],
     targets: [
         .executableTarget(
