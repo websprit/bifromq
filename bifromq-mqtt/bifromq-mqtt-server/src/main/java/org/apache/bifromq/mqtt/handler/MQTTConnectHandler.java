@@ -52,6 +52,7 @@ import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.inbox.rpc.proto.AttachRequest;
 import org.apache.bifromq.inbox.rpc.proto.DetachReply;
 import org.apache.bifromq.inbox.rpc.proto.DetachRequest;
+import org.apache.bifromq.inbox.rpc.proto.ExistReply;
 import org.apache.bifromq.inbox.rpc.proto.ExistRequest;
 import org.apache.bifromq.inbox.storage.proto.InboxVersion;
 import org.apache.bifromq.inbox.storage.proto.LWT;
@@ -81,6 +82,8 @@ import org.apache.bifromq.type.UserProperties;
 @Slf4j
 public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
     protected static final boolean SANITY_CHECK = SanityCheckMqttUtf8String.INSTANCE.get();
+    private static final int INBOX_EXIST_RETRY_TIMES = 8;
+    private static final long INBOX_EXIST_RETRY_DELAY_MS = 200;
     private final FutureTracker cancellableTasks = new FutureTracker();
     protected ChannelHandlerContext ctx;
     protected MQTTSessionContext sessionCtx;
@@ -112,6 +115,12 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
         log.trace("Received {}", mqttMessage);
         if (mqttMessage.fixedHeader().messageType() == MqttMessageType.CONNECT) {
             MqttConnectMessage connMsg = (MqttConnectMessage) msg;
+            log.info("CONNECT received: remoteAddress={}, clientId={}, protocolVersion={}, cleanStart={}, keepAliveSeconds={}",
+                ctx.channel().remoteAddress(),
+                connMsg.payload().clientIdentifier(),
+                connMsg.variableHeader().version(),
+                connMsg.variableHeader().isCleanSession(),
+                connMsg.variableHeader().keepAliveTimeSeconds());
             GoAway goAway = sanityCheck(connMsg);
             if (goAway != null) {
                 handleGoAway(goAway);
@@ -241,11 +250,11 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                                 if (sessionExpiryInterval == 0) {
                                     // try to attach to previous session and reset its SEI to 0
                                     // or set up a new transient session
-                                    return inboxClient.exist(ExistRequest.newBuilder()
+                                        return inboxExistWithRetry(ExistRequest.newBuilder()
                                             .setReqId(reqId)
                                             .setTenantId(clientInfo.getTenantId())
                                             .setInboxId(userSessionId)
-                                            .build())
+                                            .build(), requestClientId, clientInfo)
                                             .thenAcceptAsync(getReply -> {
                                                 switch (getReply.getCode()) {
                                                     case EXIST -> {
@@ -398,11 +407,11 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
             return CompletableFuture.completedFuture(ExpireResult.NOT_FOUND);
         }
         // check if the inbox exists which is a more lightweight operation than detach
-        return inboxClient.exist(ExistRequest.newBuilder()
+        return inboxExistWithRetry(ExistRequest.newBuilder()
                 .setReqId(reqId)
                 .setTenantId(clientInfo.getTenantId())
                 .setInboxId(userSessionId)
-                .build())
+            .build(), requestClientId, clientInfo)
                 .thenComposeAsync(existReply -> {
                     switch (existReply.getCode()) {
                         case NO_INBOX -> {
@@ -453,14 +462,20 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                                     }, ctx.executor());
                         }
                         case TRY_LATER -> {
+                            log.error("[DEBUG] inboxClient.exist() returned TRY_LATER for clientId={}, tenantId={}",
+                                    requestClientId, clientInfo.getTenantId());
                             handleGoAway(onInboxCallError(clientInfo, "Inbox service call[exist] needs retry"));
                             return CompletableFuture.completedFuture(ExpireResult.ERROR);
                         }
                         case BACK_PRESSURE_REJECTED -> {
+                            log.error("[DEBUG] inboxClient.exist() returned BACK_PRESSURE_REJECTED for clientId={}, tenantId={}",
+                                    requestClientId, clientInfo.getTenantId());
                             handleGoAway(onInboxCallError(clientInfo, "Inbox service call[exist] needs busy"));
                             return CompletableFuture.completedFuture(ExpireResult.ERROR);
                         }
                         default -> {
+                            log.error("[DEBUG] inboxClient.exist() returned unexpected code={} for clientId={}, tenantId={}",
+                                    existReply.getCode(), requestClientId, clientInfo.getTenantId());
                             handleGoAway(onInboxCallError(clientInfo, "Inbox service call[exist] error"));
                             return CompletableFuture.completedFuture(ExpireResult.ERROR);
                         }
@@ -516,6 +531,47 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
             ClientInfo clientInfo,
             ChannelHandlerContext ctx);
 
+    private CompletableFuture<ExistReply> inboxExistWithRetry(ExistRequest request,
+            String requestClientId,
+            ClientInfo clientInfo) {
+        return inboxExistWithRetry(request, requestClientId, clientInfo, INBOX_EXIST_RETRY_TIMES);
+    }
+
+    private CompletableFuture<ExistReply> inboxExistWithRetry(ExistRequest request,
+            String requestClientId,
+            ClientInfo clientInfo,
+            int remainingRetries) {
+        return inboxClient.exist(request)
+                .thenComposeAsync(existReply -> {
+                    if (existReply.getCode() == ExistReply.Code.TRY_LATER && remainingRetries > 0
+                            && ctx.channel().isActive()) {
+                        int attempt = INBOX_EXIST_RETRY_TIMES - remainingRetries + 1;
+                        log.info("Retry inbox exist after TRY_LATER: clientId={}, tenantId={}, inboxId={}, attempt={}/{}",
+                                requestClientId,
+                                clientInfo.getTenantId(),
+                                request.getInboxId(),
+                                attempt,
+                                INBOX_EXIST_RETRY_TIMES);
+                        CompletableFuture<ExistReply> retryFuture = new CompletableFuture<>();
+                        ctx.executor().schedule(() -> inboxExistWithRetry(request,
+                                        requestClientId,
+                                        clientInfo,
+                                        remainingRetries - 1)
+                                .whenCompleteAsync((reply, error) -> {
+                                    if (error != null) {
+                                        retryFuture.completeExceptionally(error);
+                                    } else {
+                                        retryFuture.complete(reply);
+                                    }
+                                }, ctx.executor()),
+                                INBOX_EXIST_RETRY_DELAY_MS,
+                                TimeUnit.MILLISECONDS);
+                        return retryFuture;
+                    }
+                    return CompletableFuture.completedFuture(existReply);
+                }, ctx.executor());
+    }
+
     private void setupTransientSessionHandler(MqttConnectMessage connMsg,
             TenantSettings settings,
             String userSessionId,
@@ -554,11 +610,22 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
         // Inject QUICStreamRouter if this is a QUIC stream channel
         injectStreamRouterIfQuic(ctx, sessionHandler);
         ClientInfo finalClientInfo = clientInfo;
+        log.info("CONNECT session init pending: remoteAddress={}, sessionId={}, clientId={}, sessionType=transient",
+            ctx.channel().remoteAddress(), userSessionId, connMsg.payload().clientIdentifier());
         sessionHandler.awaitInitialized()
                 .thenAcceptAsync(v -> {
-                    ctx.writeAndFlush(onConnected(connMsg, settings, userSessionId, keepAliveSeconds,
-                            0, false, finalClientInfo,
-                            successInfo.responseInfo, successInfo.authData, successInfo.userProperties));
+            log.info("CONNECT session init completed: remoteAddress={}, sessionId={}, clientId={}, sessionType=transient",
+                ctx.channel().remoteAddress(), userSessionId, connMsg.payload().clientIdentifier());
+                MqttConnAckMessage connAckMessage = onConnected(connMsg, settings, userSessionId,
+                    keepAliveSeconds, 0, false, finalClientInfo,
+                    successInfo.responseInfo, successInfo.authData, successInfo.userProperties);
+                log.info("CONNACK sent: remoteAddress={}, sessionId={}, clientId={}, sessionPresent={}, keepAliveSeconds={}",
+                    ctx.channel().remoteAddress(),
+                    userSessionId,
+                    connMsg.payload().clientIdentifier(),
+                    false,
+                    keepAliveSeconds);
+                ctx.writeAndFlush(connAckMessage);
                     // report client connected event
                     eventCollector.report(getLocal(ClientConnected.class)
                             .serverId(sessionCtx.serverId)
@@ -617,12 +684,24 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
         // Inject QUICStreamRouter if this is a QUIC stream channel
         injectStreamRouterIfQuic(ctx, sessionHandler);
         ClientInfo finalClientInfo = clientInfo;
+        log.info("CONNECT session init pending: remoteAddress={}, sessionId={}, clientId={}, sessionType=persistent",
+            ctx.channel().remoteAddress(), userSessionId, connMsg.payload().clientIdentifier());
         sessionHandler.awaitInitialized()
                 .thenAcceptAsync(v -> {
-                    ctx.writeAndFlush(onConnected(connMsg, settings, userSessionId, keepAliveSeconds,
-                            sessionExpiryInterval,
-                            inboxVersion.getMod() > 0, finalClientInfo, successInfo.responseInfo, successInfo.authData,
-                            successInfo.userProperties));
+            log.info("CONNECT session init completed: remoteAddress={}, sessionId={}, clientId={}, sessionType=persistent",
+                ctx.channel().remoteAddress(), userSessionId, connMsg.payload().clientIdentifier());
+                boolean sessionPresent = inboxVersion.getMod() > 0;
+                MqttConnAckMessage connAckMessage = onConnected(connMsg, settings, userSessionId,
+                    keepAliveSeconds, sessionExpiryInterval,
+                    sessionPresent, finalClientInfo, successInfo.responseInfo, successInfo.authData,
+                    successInfo.userProperties);
+                log.info("CONNACK sent: remoteAddress={}, sessionId={}, clientId={}, sessionPresent={}, keepAliveSeconds={}",
+                    ctx.channel().remoteAddress(),
+                    userSessionId,
+                    connMsg.payload().clientIdentifier(),
+                    sessionPresent,
+                    keepAliveSeconds);
+                ctx.writeAndFlush(connAckMessage);
                     // report client connected event
                     eventCollector.report(getLocal(ClientConnected.class)
                             .serverId(sessionCtx.serverId)
@@ -662,6 +741,11 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
         for (Event<?> reason : goAway.reasons()) {
             eventCollector.report(reason);
         }
+        log.info("CONNECT goAway: remoteAddress={}, rightNow={}, farewellType={}, reasons={}",
+                ctx.channel().remoteAddress(),
+                goAway.rightNow(),
+                goAway.farewell() != null ? goAway.farewell().fixedHeader().messageType() : null,
+                java.util.Arrays.stream(goAway.reasons()).map(reason -> reason.getClass().getSimpleName()).toList());
         Runnable doGoAway = () -> {
             if (goAway.farewell() != null) {
                 ctx.writeAndFlush(goAway.farewell()).addListener(ChannelFutureListener.CLOSE);

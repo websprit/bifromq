@@ -53,6 +53,7 @@ import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.Tot
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalRetainedMessagesPerSeconds;
 import static org.apache.bifromq.plugin.resourcethrottler.TenantResourceType.TotalSharedSubscriptions;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CHANNEL_ID_KEY;
+import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_CLIENT_ID_KEY;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_5_VALUE;
 import static org.apache.bifromq.type.MQTTClientInfoConstants.MQTT_PROTOCOL_VER_KEY;
 import static org.apache.bifromq.type.QoS.AT_LEAST_ONCE;
@@ -368,9 +369,15 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     @Override
     public void handlerAdded(ChannelHandlerContext ctx) {
         super.handlerAdded(ctx);
-        ChannelAttrs.trafficShaper(ctx).setReadLimit(settings.inboundBandwidth);
-        ChannelAttrs.trafficShaper(ctx).setWriteLimit(settings.outboundBandwidth);
-        ChannelAttrs.trafficShaper(ctx).setMaxWriteSize(settings.outboundBandwidth);
+        if (ChannelAttrs.trafficShaper(ctx) != null) {
+            ChannelAttrs.trafficShaper(ctx).setReadLimit(settings.inboundBandwidth);
+            ChannelAttrs.trafficShaper(ctx).setWriteLimit(settings.outboundBandwidth);
+            ChannelAttrs.trafficShaper(ctx).setMaxWriteSize(settings.outboundBandwidth);
+        } else {
+            log.info("No ChannelTrafficShapingHandler found for channel={}, protocol={}; skip traffic shaping initialization",
+                ctx.channel().remoteAddress(),
+                ctx.channel().getClass().getSimpleName());
+        }
         ChannelAttrs.setMaxPayload(settings.maxPacketSize, ctx);
         receiveQuota = new AdaptiveReceiveQuota(settings.minSendPerSec, clientReceiveMaximum(), EMA_ALPHA);
         sessionCtx.localSessionRegistry.add(channelId(), this);
@@ -517,6 +524,16 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         long reqId = packetId > 0 ? packetId : sessionCtx.nanoTime();
         String topic = helper().getTopic(mqttMessage);
         int ingressMsgBytes = mqttMessage.fixedHeader().remainingLength() + 1;
+        log.info("PUBLISH received: reqId={}, sessionId={}, clientId={}, topic={}, qos={}, packetId={}, dup={}, retain={}, payloadBytes={}",
+            reqId,
+            userSessionId(clientInfo),
+            clientInfo.getMetadataOrDefault(MQTT_CLIENT_ID_KEY, ""),
+            topic,
+            mqttMessage.fixedHeader().qosLevel(),
+            packetId,
+            mqttMessage.fixedHeader().isDup(),
+            mqttMessage.fixedHeader().isRetain(),
+            mqttMessage.payload().readableBytes());
         CompletableFuture<Void> pubFuture = (switch (mqttMessage.fixedHeader().qosLevel()) {
             case AT_MOST_ONCE -> handleQoS0Pub(reqId, topic, mqttMessage, ingressMsgBytes);
             case AT_LEAST_ONCE -> handleQoS1Pub(reqId, topic, mqttMessage, ingressMsgBytes);

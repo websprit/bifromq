@@ -43,6 +43,9 @@
         <dependency>
             <groupId>org.rocksdb</groupId>
             <artifactId>rocksdbjni</artifactId>
+            <version>${rocksdb.version}</version>
+            <!-- native jar with .so / .jnilib, classifier selected by OS profile below -->
+            <classifier>${rocksdb.native.classifier}</classifier>
         </dependency>
         <!-- test -->
         <dependency>
@@ -82,4 +85,47 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <!-- Linux x86_64 (Docker linux/amd64) -->
+        <profile>
+            <id>rocksdb-linux64</id>
+            <activation>
+                <os>
+                    <name>Linux</name>
+                    <arch>amd64</arch>
+                </os>
+            </activation>
+            <properties>
+                <rocksdb.native.classifier>linux64</rocksdb.native.classifier>
+            </properties>
+        </profile>
+
+        <!-- macOS (ARM64 or x86_64, both covered by universal osx.jar) -->
+        <profile>
+            <id>rocksdb-osx</id>
+            <activation>
+                <os>
+                    <family>mac</family>
+                </os>
+            </activation>
+            <properties>
+                <rocksdb.native.classifier>osx</rocksdb.native.classifier>
+            </properties>
+        </profile>
+
+        <!-- Windows x64 -->
+        <profile>
+            <id>rocksdb-win64</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <rocksdb.native.classifier>win64</rocksdb.native.classifier>
+            </properties>
+        </profile>
+    </profiles>
+
 </project>

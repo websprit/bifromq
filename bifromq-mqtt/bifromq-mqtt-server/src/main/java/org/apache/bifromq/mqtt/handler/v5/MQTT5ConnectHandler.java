@@ -584,8 +584,9 @@ public class MQTT5ConnectHandler extends MQTTConnectHandler {
                     .reasonString("Too large TopicAliasMaximum: max=" + settings.maxTopicAlias)
                     .build())
                 .build(),
-                getLocal(InvalidTopic.class)
-                    .topic(message.payload().willTopic())
+                getLocal(ProtocolViolation.class)
+                    .statement("TopicAliasMaximum exceeds max: requested=" + topicAliasMaximum.get() +
+                        ", max=" + settings.maxTopicAlias)
                     .clientInfo(clientInfo));
         }
         if (message.variableHeader().isWillFlag()) {

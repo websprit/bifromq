@@ -1,0 +1,9 @@
+/opt/NanoSDK/build/src/supplemental/quic/msquic/msquic/obj/Release/libcore.a
+/opt/NanoSDK/build/src/supplemental/quic/msquic/msquic/obj/Release/libplatform.a
+/opt/NanoSDK/build/_deps/opensslquic-build/openssl/lib/libcrypto.a
+/opt/NanoSDK/build/_deps/opensslquic-build/openssl/lib/libssl.a
+/opt/NanoSDK/build/_deps/opensslquic-build/submodules/openssl/apps/libapps.a
+/opt/NanoSDK/build/_deps/opensslquic-build/submodules/openssl/libcrypto.a
+/opt/NanoSDK/build/_deps/opensslquic-build/submodules/openssl/libssl.a
+/opt/NanoSDK/build/libnng_testing.a
+/opt/NanoSDK/build/libnng.a

@@ -34,7 +34,7 @@ public class HostAddressResolverTest {
     @Test
     public void unresolvedAddressShouldNotBeCached() {
         HostAddressResolver resolver = new HostAddressResolver(Duration.ofSeconds(1), Duration.ofSeconds(1));
-        HostEndpoint host = HostEndpoint.newBuilder().setAddress("unresolved").setPort(1234).build();
+        HostEndpoint host = HostEndpoint.newBuilder().setAddress("a..b").setPort(1234).build();
         InetSocketAddress address = resolver.resolve(host);
         assertTrue(address.isUnresolved());
         assertNotSame(resolver.resolve(host), address);

@@ -29,10 +29,16 @@ import io.netty.handler.ssl.SslProvider;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.incubator.codec.quic.QuicSslContext;
 import io.netty.incubator.codec.quic.QuicSslContextBuilder;
+import java.io.File;
 import java.security.Provider;
 import java.security.Security;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.Collection;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.starter.config.model.ServerSSLContextConfig;
 
+@Slf4j
 public class SSLUtil {
     public static SslProvider defaultSslProvider() {
         if (OpenSsl.isAvailable()) {
@@ -80,16 +86,44 @@ public class SSLUtil {
      */
     public static QuicSslContext buildQuicSslContext(ServerSSLContextConfig config) {
         try {
+            File certFile = loadFile(config.getCertFile());
+            File keyFile = loadFile(config.getKeyFile());
+            log.info("Building QUIC SSL context: certFile={}, keyFile={}, trustCertsFile={}, clientAuth={}",
+                certFile.getAbsolutePath(), keyFile.getAbsolutePath(), config.getTrustCertsFile(), config.getClientAuth());
+            logQuicCertificateDetails(certFile);
             QuicSslContextBuilder quicSslCtxBuilder = QuicSslContextBuilder
-                    .forServer(loadFile(config.getCertFile()), null, loadFile(config.getKeyFile()))
+                    // forServer(keyFile, keyPassword, certChainFile)
+                    .forServer(keyFile, null, certFile)
                     .applicationProtocols("mqtt")
                     .clientAuth(config.getClientAuth());
             if (!Strings.isNullOrEmpty(config.getTrustCertsFile())) {
                 quicSslCtxBuilder.trustManager(loadFile(config.getTrustCertsFile()));
             }
-            return quicSslCtxBuilder.build();
+            QuicSslContext quicSslContext = quicSslCtxBuilder.build();
+            log.info("Built QUIC SSL context successfully: applicationProtocols=[mqtt], clientAuth={}",
+                config.getClientAuth());
+            return quicSslContext;
         } catch (Throwable e) {
             throw new RuntimeException("Fail to initialize QUIC SSLContext", e);
+        }
+    }
+
+    private static void logQuicCertificateDetails(File certFile) {
+        try {
+            CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
+            Collection<? extends java.security.cert.Certificate> certificates =
+                certificateFactory.generateCertificates(new java.io.FileInputStream(certFile));
+            int index = 0;
+            for (java.security.cert.Certificate certificate : certificates) {
+                if (certificate instanceof X509Certificate x509Certificate) {
+                    log.info("QUIC certificate[{}]: subject={}, issuer={}, notBefore={}, notAfter={}, san={}",
+                        index++, x509Certificate.getSubjectX500Principal(), x509Certificate.getIssuerX500Principal(),
+                        x509Certificate.getNotBefore(), x509Certificate.getNotAfter(),
+                        x509Certificate.getSubjectAlternativeNames());
+                }
+            }
+        } catch (Throwable e) {
+            log.warn("Failed to inspect QUIC certificate metadata: certFile={}", certFile.getAbsolutePath(), e);
         }
     }
 }

@@ -21,7 +21,8 @@
 # providing a helpful reference for writing and customizing this file.
 
 # Enabling custom auth provider, specify the Fully Qualified Name of the auth provider class from your plugin.
-# or experiment with the built-in auth provider which is a simple webhook based implementation.
+# If omitted, starter falls back to the built-in DEV ONLY auth provider for local development.
+# To use the demo plugin's webhook-based auth provider, package and enable that plugin explicitly.
 # authProviderFQN: "org.apache.bifromq.demo.plugin.DemoAuthProvider"
 
 # Enabling runtime throttling at tenant-level, specify the Fully Qualified Name of the resource throttler class from your plugin.
@@ -36,6 +37,13 @@ mqttServiceConfig:
   server:
     tcpListener:
       port: 1883
+    quicListener:
+      enable: true
+      port: 14567
+      sslConfig:
+        certFile: "certs/server.crt"
+        keyFile: "certs/server.key"
+        clientAuth: "NONE"
 
 # config for building BifroMQ cluster
 clusterConfig:

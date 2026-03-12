@@ -79,7 +79,8 @@ public class QUICConnectionHandler extends ChannelInboundHandlerAdapter {
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
         QuicChannel quicChannel = (QuicChannel) ctx.channel();
-        log.debug("QUIC connection established from: {}", quicChannel.remoteAddress());
+        log.info("QUIC connection established: remoteAddress={}, localAddress={}",
+            quicChannel.remoteAddress(), quicChannel.localAddress());
 
         // Store remote address at connection level for stream handlers (fixes #3)
         // Note: QuicChannel.remoteAddress() returns QuicConnectionAddress (not
@@ -89,24 +90,33 @@ public class QUICConnectionHandler extends ChannelInboundHandlerAdapter {
         if (remoteAddr != null) {
             quicChannel.attr(QUIC_PEER_ADDR).set(remoteAddr);
         }
+        log.info("QUIC connection socket addresses: remoteSocketAddress={}, localSocketAddress={}",
+            remoteAddr, quicChannel.localSocketAddress());
 
         // Extract client certificates from QUIC TLS (fixes #2)
         try {
             javax.net.ssl.SSLEngine sslEngine = quicChannel.sslEngine();
             if (sslEngine != null && sslEngine.getSession() != null) {
+                log.info("QUIC TLS session established: protocol={}, cipherSuite={}, applicationProtocol={}",
+                    sslEngine.getSession().getProtocol(), sslEngine.getSession().getCipherSuite(),
+                    sslEngine.getApplicationProtocol());
                 java.security.cert.Certificate[] certs = sslEngine.getSession().getPeerCertificates();
                 if (certs != null && certs.length > 0) {
                     quicChannel.attr(QUIC_CLIENT_CERTS).set(certs);
+                    log.info("QUIC peer certificates captured: remoteSocketAddress={}, certificateCount={}",
+                        remoteAddr, certs.length);
                 }
+            } else {
+                log.warn("QUIC TLS session missing on active channel: remoteSocketAddress={}", remoteAddr);
             }
         } catch (javax.net.ssl.SSLPeerUnverifiedException e) {
-            log.trace("No client certificate for QUIC connection: {}", remoteAddr);
+            log.info("QUIC peer presented no client certificate: remoteSocketAddress={}", remoteAddr);
         }
 
         // Create QUICStreamRouter for multi-stream mode
         QUICStreamRouter streamRouter = new QUICStreamRouter(quicChannel);
         quicChannel.attr(QUIC_STREAM_ROUTER).set(streamRouter);
-        log.debug("QUICStreamRouter created for connection: {}", remoteAddr);
+        log.info("QUICStreamRouter created for connection: remoteSocketAddress={}", remoteAddr);
 
         // Store session context at connection level (fixes #1)
         // This will be propagated to stream channels in QUICStreamInitializer
@@ -117,7 +127,8 @@ public class QUICConnectionHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        log.debug("QUIC connection closed: {}", ctx.channel().remoteAddress());
+        log.info("QUIC connection closed: remoteAddress={}, localAddress={}",
+            ctx.channel().remoteAddress(), ctx.channel().localAddress());
         super.channelInactive(ctx);
     }
 

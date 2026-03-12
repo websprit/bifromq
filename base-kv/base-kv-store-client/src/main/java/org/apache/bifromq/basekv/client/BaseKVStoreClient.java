@@ -392,11 +392,11 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
     @Override
     public IMutationPipeline createMutationPipeline(String storeId) {
         return new ManagedMutationPipeline(storeToServerSubject
-            .map(m -> Optional.ofNullable(m.get(storeId)))
+            .map((Map<String, String> m) -> Optional.ofNullable(m.get(storeId)))
             .distinctUntilChanged()
-            .map(serverIdOpt -> {
+            .map((Optional<String> serverIdOpt) -> {
                 if (serverIdOpt.isEmpty()) {
-                    return new IRPCClient.IRequestPipeline<>() {
+                    return new IRPCClient.IRequestPipeline<KVRangeRWRequest, KVRangeRWReply>() {
                         @Override
                         public boolean isClosed() {
                             return false;
@@ -430,37 +430,39 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
     }
 
     private IQueryPipeline createQueryPipeline(String storeId, boolean linearized) {
-        return new ManagedQueryPipeline(storeToServerSubject
-            .map(m -> Optional.ofNullable(m.get(storeId)))
-            .distinctUntilChanged()
-            .map(serverIdOpt -> {
-                if (serverIdOpt.isEmpty()) {
-                    return new IRPCClient.IRequestPipeline<>() {
-                        @Override
-                        public boolean isClosed() {
-                            return false;
-                        }
+        Observable<IRPCClient.IRequestPipeline<KVRangeRORequest, KVRangeROReply>> pplnObservable =
+            storeToServerSubject
+                .map((Map<String, String> m) -> Optional.ofNullable(m.get(storeId)))
+                .distinctUntilChanged()
+                .<IRPCClient.IRequestPipeline<KVRangeRORequest, KVRangeROReply>>map((Optional<String> serverIdOpt) -> {
+                    if (serverIdOpt.isEmpty()) {
+                        return new IRPCClient.IRequestPipeline<KVRangeRORequest, KVRangeROReply>() {
+                            @Override
+                            public boolean isClosed() {
+                                return false;
+                            }
 
-                        @Override
-                        public CompletableFuture<KVRangeROReply> invoke(KVRangeRORequest req) {
-                            return CompletableFuture.failedFuture(
-                                new ServerNotFoundException(
-                                    "BaseKVStore Server not available for storeId: " + storeId));
-                        }
+                            @Override
+                            public CompletableFuture<KVRangeROReply> invoke(KVRangeRORequest req) {
+                                return CompletableFuture.failedFuture(
+                                    new ServerNotFoundException(
+                                        "BaseKVStore Server not available for storeId: " + storeId));
+                            }
 
-                        @Override
-                        public void close() {
+                            @Override
+                            public void close() {
 
-                        }
-                    };
-                }
-                if (linearized) {
-                    return rpcClient.createRequestPipeline("", serverIdOpt.get(), null, emptyMap(),
-                        linearizedQueryMethod);
-                } else {
-                    return rpcClient.createRequestPipeline("", serverIdOpt.get(), null, emptyMap(), queryMethod);
-                }
-            }), latest -> patchRouter(storeId, latest), log);
+                            }
+                        };
+                    }
+                    if (linearized) {
+                        return rpcClient.createRequestPipeline("", serverIdOpt.get(), null, emptyMap(),
+                            linearizedQueryMethod);
+                    } else {
+                        return rpcClient.createRequestPipeline("", serverIdOpt.get(), null, emptyMap(), queryMethod);
+                    }
+                });
+        return new ManagedQueryPipeline(pplnObservable, latest -> patchRouter(storeId, latest), log);
     }
 
     @Override

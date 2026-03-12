@@ -27,7 +27,6 @@ import static org.apache.bifromq.basekv.utils.BoundaryUtil.endKeyBytes;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.startKeyBytes;
 
 import com.google.protobuf.ByteString;
-import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -84,15 +83,13 @@ class RocksDBKVSpaceWriterHelper {
 
     void insert(ColumnFamilyHandle cfHandle, ByteString key, ByteString value) throws RocksDBException {
         byte[] dataKey = toDataKey(key);
-        ByteBuffer valueBuf = value.asReadOnlyByteBuffer();
-        batch.put(cfHandle, ByteBuffer.wrap(dataKey), valueBuf);
+        batch.put(cfHandle, dataKey, value.toByteArray());
     }
 
     void put(ColumnFamilyHandle cfHandle, ByteString key, ByteString value) throws RocksDBException {
         byte[] dataKey = toDataKey(key);
         batch.singleDelete(cfHandle, dataKey);
-        ByteBuffer valueBuf = value.asReadOnlyByteBuffer();
-        batch.put(cfHandle, ByteBuffer.wrap(dataKey), valueBuf);
+        batch.put(cfHandle, dataKey, value.toByteArray());
     }
 
     void delete(ColumnFamilyHandle cfHandle, ByteString key) throws RocksDBException {

@@ -81,6 +81,8 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
 
     @Override
     protected void initChannel(QuicStreamChannel ch) {
+        log.info("QUIC stream init start: streamId={}, type={}, parent={}, local={}, remote={}",
+            ch.streamId(), ch.type(), ch.parent(), ch.localAddress(), ch.remoteAddress());
         // Propagate session context from parent QuicChannel (fixes #1)
         MQTTSessionContext sessionCtx = ch.parent().attr(ChannelAttrs.MQTT_SESSION_CTX).get();
         if (sessionCtx == null) {
@@ -105,7 +107,7 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
             if (streamId == 0) {
                 // Stream 0 is the control stream
                 router.setControlStream(ch);
-                log.debug("Control stream registered: streamId={}", streamId);
+                log.info("QUIC control stream registered: streamId={}", streamId);
             } else {
                 // Data streams: map QUIC stream ID to bucket index
                 // QUIC bidirectional stream IDs: 0, 4, 8, 12, ... (client-initiated)
@@ -113,7 +115,7 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
                 int bucketIndex = (int) ((streamId / 4) - 1) % router.dataStreamCount();
                 if (bucketIndex >= 0 && bucketIndex < router.dataStreamCount()) {
                     router.setDataStream(bucketIndex, ch);
-                    log.debug("Data stream registered: streamId={}, bucket={}", streamId, bucketIndex);
+                    log.info("QUIC data stream registered: streamId={}, bucket={}", streamId, bucketIndex);
                 }
             }
         }
@@ -128,7 +130,7 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
         ch.pipeline().addLast(MQTTPreludeHandler.NAME,
                 new MQTTPreludeHandler(connectTimeoutSeconds));
 
-        log.debug("QUIC stream pipeline initialized: streamId={}, remote={}",
-                ch.streamId(), peerAddr);
+        log.info("QUIC stream pipeline initialized: streamId={}, remote={}, handlers={}",
+            ch.streamId(), peerAddr, ch.pipeline().names());
     }
 }

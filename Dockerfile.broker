@@ -1,0 +1,38 @@
+# linux/amd64 多阶段构建：COPY 本地 ~/.m2 到容器内，解决 Maven Central 网络问题
+FROM --platform=linux/amd64 maven:3.9.6-eclipse-temurin-21 AS builder
+
+WORKDIR /build
+
+# 先拷贝本地 Maven 仓库缓存（绕过 Docker 内联网下载）
+COPY m2-cache /root/.m2
+
+# 拷贝完整源码
+COPY src-context /build
+
+# 单线程构建，激活 build-release Profile（打包含 linux x86_64 RocksDB native 的发行包）
+RUN ./mvnw -T 1 clean verify -DskipTests \
+    -Pbuild-release \
+    -Drat.skip=true \
+    -Dcheckstyle.skip=true \
+    --no-transfer-progress \
+    && tar xzf target/output/apache-bifromq-4.0.0-incubating.tar.gz -C /opt
+
+# ====== Stage 2: Runtime ======
+FROM --platform=linux/amd64 eclipse-temurin:21-jre
+
+ENV BIFROMQ_HOME=/bifromq
+
+COPY --from=builder /opt/apache-bifromq-4.0.0-incubating ${BIFROMQ_HOME}
+
+COPY conf/standalone.yml ${BIFROMQ_HOME}/conf/standalone.yml
+COPY conf/certs/server.crt ${BIFROMQ_HOME}/conf/certs/server.crt
+COPY conf/certs/server.key ${BIFROMQ_HOME}/conf/certs/server.key
+
+WORKDIR ${BIFROMQ_HOME}
+
+EXPOSE 1883
+EXPOSE 14567/udp
+EXPOSE 1884
+EXPOSE 8080
+
+CMD ["/bin/bash", "-c", "${BIFROMQ_HOME}/bin/standalone.sh start && tail -f ${BIFROMQ_HOME}/logs/info.log"]

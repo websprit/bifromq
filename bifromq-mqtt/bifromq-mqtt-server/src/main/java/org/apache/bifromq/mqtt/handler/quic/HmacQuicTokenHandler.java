@@ -20,6 +20,7 @@
 package org.apache.bifromq.mqtt.handler.quic;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.incubator.codec.quic.Quic;
 import io.netty.incubator.codec.quic.QuicTokenHandler;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -28,7 +29,8 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Production-grade QUIC token handler using HMAC-SHA256 for token generation
@@ -39,26 +41,27 @@ import lombok.extern.slf4j.Slf4j;
  * proper address validation for QUIC Initial packets, mitigating amplification
  * attacks.
  * <p>
- * Token format (32 bytes):
+ * Token format:
  * 
  * <pre>
  *   [4 bytes: IP address] [2 bytes: port] [8 bytes: timestamp] [2 bytes: padding] [16 bytes: HMAC-SHA256 truncated]
+ *   [N bytes: original destination connection id]
  * </pre>
  * <p>
  * Token validity window: 60 seconds (configurable). Tokens older than this are
  * rejected,
  * forcing the client to retry with a new Initial packet.
  */
-@Slf4j
 public class HmacQuicTokenHandler implements QuicTokenHandler {
+    private static final Logger log = LoggerFactory.getLogger(HmacQuicTokenHandler.class);
 
     private static final String HMAC_ALGO = "HmacSHA256";
-    private static final int TOKEN_SIZE = 32;
     private static final int HMAC_TRUNCATED_SIZE = 16; // Truncated HMAC for compactness
     private static final int ADDR_SIZE = 4; // IPv4 address
     private static final int PORT_SIZE = 2;
     private static final int TIMESTAMP_SIZE = 8;
     private static final int PADDING_SIZE = 2;
+    private static final int TOKEN_PREFIX_SIZE = ADDR_SIZE + PORT_SIZE + TIMESTAMP_SIZE + PADDING_SIZE + HMAC_TRUNCATED_SIZE;
 
     private final byte[] secretKey;
     private final long tokenValidityMs;
@@ -101,6 +104,8 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
             byte[] addrBytes = address.getAddress().getAddress();
             int port = address.getPort();
             long timestamp = System.currentTimeMillis();
+            int dcidLength = dcid.readableBytes();
+            log.info("QUIC token write: remoteAddress={}, dcidBytes={}", address, dcidLength);
 
             // Build plaintext: addr + port + timestamp + padding
             ByteBuffer plain = ByteBuffer.allocate(ADDR_SIZE + PORT_SIZE + TIMESTAMP_SIZE + PADDING_SIZE);
@@ -127,6 +132,9 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
             plain.rewind();
             out.writeBytes(plain);
             out.writeBytes(hmac, 0, HMAC_TRUNCATED_SIZE);
+            out.writeBytes(dcid, dcid.readerIndex(), dcidLength);
+            log.info("QUIC token write success: remoteAddress={}, port={}, tokenPrefixSize={}, originalDcidBytes={}",
+                address, port, TOKEN_PREFIX_SIZE, dcidLength);
             return true;
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             log.error("Failed to generate QUIC token", e);
@@ -136,7 +144,9 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
 
     @Override
     public int validateToken(ByteBuf token, InetSocketAddress address) {
-        if (token.readableBytes() < TOKEN_SIZE) {
+        if (token.readableBytes() <= TOKEN_PREFIX_SIZE) {
+            log.info("QUIC token validate rejected: remoteAddress={}, reason=token_too_short, readableBytes={}",
+                address, token.readableBytes());
             return -1;
         }
 
@@ -150,6 +160,8 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
         // Read HMAC
         byte[] receivedHmac = new byte[HMAC_TRUNCATED_SIZE];
         token.readBytes(receivedHmac);
+        log.info("QUIC token validate start: remoteAddress={}, encodedPort={}, tokenAgeMs={}",
+            address, port, System.currentTimeMillis() - timestamp);
 
         // 1. Check timestamp validity
         long now = System.currentTimeMillis();
@@ -167,11 +179,12 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
             System.arraycopy(clientAddr, clientAddr.length - 4, clientAddrTruncated, 0, 4);
         }
         if (!java.util.Arrays.equals(addrBytes, clientAddrTruncated)) {
-            log.debug("QUIC token address mismatch");
+            log.info("QUIC token validate rejected: remoteAddress={}, reason=address_mismatch", address);
             return -1;
         }
         if (port != address.getPort()) {
-            log.debug("QUIC token port mismatch");
+            log.info("QUIC token validate rejected: remoteAddress={}, reason=port_mismatch, encodedPort={}, actualPort={}",
+                address, port, address.getPort());
             return -1;
         }
 
@@ -191,12 +204,15 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
 
             // Constant-time comparison (truncated)
             if (!constantTimeEquals(receivedHmac, expectedHmac, HMAC_TRUNCATED_SIZE)) {
-                log.debug("QUIC token HMAC verification failed");
+                log.info("QUIC token validate rejected: remoteAddress={}, reason=hmac_mismatch", address);
                 return -1;
             }
 
             // Token is valid — return offset past the consumed token bytes
-            return TOKEN_SIZE;
+            int originalDcidLength = token.readableBytes();
+            log.info("QUIC token validate success: remoteAddress={}, tokenPrefixSize={}, originalDcidBytes={}",
+                address, TOKEN_PREFIX_SIZE, originalDcidLength);
+            return TOKEN_PREFIX_SIZE;
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             log.error("Failed to validate QUIC token", e);
             return -1;
@@ -205,7 +221,7 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
 
     @Override
     public int maxTokenLength() {
-        return TOKEN_SIZE;
+        return TOKEN_PREFIX_SIZE + Quic.MAX_CONN_ID_LEN;
     }
 
     /**

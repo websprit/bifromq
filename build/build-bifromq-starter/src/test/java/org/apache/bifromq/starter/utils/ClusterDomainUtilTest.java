@@ -40,7 +40,7 @@ public class ClusterDomainUtilTest {
 
     @Test
     public void testResolveTimeout() {
-        String domainName = "this.domain.must.be.non.existed";
+        String domainName = "a..b";
         Duration timeout = Duration.ofMillis(100);
         assertThrows(ExecutionException.class, () -> ClusterDomainUtil.resolve(domainName, timeout).get());
     }

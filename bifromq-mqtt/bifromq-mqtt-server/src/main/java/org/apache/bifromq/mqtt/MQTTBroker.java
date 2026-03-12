@@ -28,9 +28,12 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
+import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.haproxy.HAProxyMessageDecoder;
@@ -310,6 +313,11 @@ class MQTTBroker implements IMQTTBroker {
     }
 
     private ChannelFuture bindQUICChannel(QUICConnListenerBuilder connBuilder) {
+        log.info("Binding QUIC listener: host={}, port={}, maxIdleTimeoutMs={}, initialMaxData={}, " +
+                "initialMaxStreamDataBidiLocal={}, initialMaxStreamDataBidiRemote={}, initialMaxStreamsBidi={}",
+            connBuilder.host(), connBuilder.port(), connBuilder.maxIdleTimeoutMs(), connBuilder.initialMaxData(),
+            connBuilder.initialMaxStreamDataBidiLocal(), connBuilder.initialMaxStreamDataBidiRemote(),
+            connBuilder.initialMaxStreamsBidi());
         QuicServerCodecBuilder quicServerCodecBuilder = new QuicServerCodecBuilder()
                 .sslContext(connBuilder.sslContext())
                 .maxIdleTimeout(connBuilder.maxIdleTimeoutMs(), TimeUnit.MILLISECONDS)
@@ -327,11 +335,42 @@ class MQTTBroker implements IMQTTBroker {
         Bootstrap b = new Bootstrap()
                 .group(workerGroup)
                 .channel(NettyEnv.determineDatagramChannelClass(workerGroup))
-                .handler(quicServerCodecBuilder.build());
+                .handler(new ChannelInitializer<>() {
+                    @Override
+                    protected void initChannel(Channel ch) {
+                        ch.pipeline().addLast("quicDatagramDiag", new QUICDatagramDiagnosticHandler());
+                        ch.pipeline().addLast("quicServerCodec", quicServerCodecBuilder.build());
+                    }
+                });
 
         InetSocketAddress bindAddr = connBuilder.host() != null
                 ? new InetSocketAddress(connBuilder.host(), connBuilder.port())
                 : new InetSocketAddress(connBuilder.port());
-        return b.bind(bindAddr);
+        ChannelFuture bindFuture = b.bind(bindAddr);
+        bindFuture.addListener(future -> {
+            if (future.isSuccess()) {
+                log.info("QUIC listener bound successfully: localAddress={}", bindAddr);
+            } else {
+                log.error("QUIC listener bind failed: localAddress={}", bindAddr, future.cause());
+            }
+        });
+        return bindFuture;
+    }
+
+    private static final class QUICDatagramDiagnosticHandler extends ChannelInboundHandlerAdapter {
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            if (msg instanceof DatagramPacket packet) {
+                log.info("QUIC UDP datagram received: local={}, remote={}, bytes={}",
+                    packet.recipient(), packet.sender(), packet.content().readableBytes());
+            }
+            super.channelRead(ctx, msg);
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            log.warn("QUIC UDP datagram channel exception: local={}", ctx.channel().localAddress(), cause);
+            ctx.fireExceptionCaught(cause);
+        }
     }
 }
