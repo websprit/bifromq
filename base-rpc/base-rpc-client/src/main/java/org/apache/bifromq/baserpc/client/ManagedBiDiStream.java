@@ -38,6 +38,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.StampedLock;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baserpc.BluePrint;
@@ -63,6 +64,7 @@ abstract class ManagedBiDiStream<InT, OutT> {
         new AtomicReference<>(BidiStreamContext.from(new DummyBiDiStream<>(this)));
     private final AtomicBoolean retargetScheduled = new AtomicBoolean();
     private volatile IServerSelector serverSelector = DummyServerSelector.INSTANCE;
+    protected final StampedLock lock = new StampedLock();
 
     ManagedBiDiStream(String tenantId,
                       String wchKey,
@@ -155,8 +157,11 @@ abstract class ManagedBiDiStream<InT, OutT> {
                 Optional<String> newServer = sticky ? router.stickyHashing(wchKey) : router.hashing(wchKey);
                 if (newServer.isEmpty()) {
                     // cancel current bidi-stream
-                    synchronized (this) {
+                    long stamp = lock.writeLock();
+                    try {
                         bidiStream.get().bidiStream().cancel("No server available");
+                    } finally {
+                        lock.unlockWrite(stamp);
                     }
                 } else if (!newServer.equals(currentServer)) {
                     switch (state.get()) {
@@ -181,8 +186,11 @@ abstract class ManagedBiDiStream<InT, OutT> {
                 Optional<String> newServer = router.random();
                 if (newServer.isEmpty()) {
                     // cancel current bidi-stream
-                    synchronized (this) {
+                    long stamp = lock.writeLock();
+                    try {
                         bidiStream.get().bidiStream().cancel("No server available");
+                    } finally {
+                        lock.unlockWrite(stamp);
                     }
                 } else {
                     switch (state.get()) {
@@ -214,8 +222,11 @@ abstract class ManagedBiDiStream<InT, OutT> {
                 Optional<String> newServer = router.tryRoundRobin();
                 if (newServer.isEmpty()) {
                     // cancel current bidi-stream
-                    synchronized (this) {
+                    long stamp = lock.writeLock();
+                    try {
                         bidiStream.get().bidiStream().cancel("No server available");
+                    } finally {
+                        lock.unlockWrite(stamp);
                     }
                 } else {
                     switch (state.get()) {
@@ -237,10 +248,13 @@ abstract class ManagedBiDiStream<InT, OutT> {
     }
 
     void close() {
-        synchronized (this) {
+        long stamp = lock.writeLock();
+        try {
             disposables.dispose();
             bidiStream.get().close();
             closed.set(true);
+        } finally {
+            lock.unlockWrite(stamp);
         }
     }
 
@@ -282,7 +296,8 @@ abstract class ManagedBiDiStream<InT, OutT> {
     }
 
     private void retarget(IServerSelector serverSelector) {
-        synchronized (this) {
+        long stamp = lock.writeLock();
+        try {
             if (closed.get()) {
                 return;
             }
@@ -329,6 +344,8 @@ abstract class ManagedBiDiStream<InT, OutT> {
                     }
                 }
             }
+        } finally {
+            lock.unlockWrite(stamp);
         }
         if (serverSelector != this.serverSelector) {
             // server selector has been changed, schedule a retarget

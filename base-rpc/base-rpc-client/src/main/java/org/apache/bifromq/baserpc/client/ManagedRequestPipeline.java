@@ -49,7 +49,7 @@ public class ManagedRequestPipeline<ReqT, RespT> extends ManagedBiDiStream<ReqT,
     private final AtomicBoolean sending = new AtomicBoolean(false);
     private final IRPCMeter.IRPCMethodMeter meter;
     private final MethodDescriptor<ReqT, RespT> methodDescriptor;
-    private boolean isRetargeting = false;
+    private final AtomicBoolean isRetargeting = new AtomicBoolean(false);
 
     ManagedRequestPipeline(String tenantId,
                            String wchKey,
@@ -75,24 +75,23 @@ public class ManagedRequestPipeline<ReqT, RespT> extends ManagedBiDiStream<ReqT,
 
     @Override
     boolean prepareRetarget() {
-        synchronized (this) {
-            isRetargeting = true;
+        long stamp = lock.writeLock();
+        try {
+            isRetargeting.set(true);
             return inflightTaskQueue.isEmpty();
+        } finally {
+            lock.unlockWrite(stamp);
         }
     }
 
     @Override
     boolean canStartRetarget() {
-        synchronized (this) {
-            return isRetargeting && inflightTaskQueue.isEmpty();
-        }
+        return isRetargeting.get() && inflightTaskQueue.isEmpty();
     }
 
     @Override
     void onStreamCreated() {
-        synchronized (this) {
-            isRetargeting = false;
-        }
+        isRetargeting.set(false);
         meter.recordCount(RPCMetric.ReqPipelineCreateCount);
     }
 
@@ -177,28 +176,30 @@ public class ManagedRequestPipeline<ReqT, RespT> extends ManagedBiDiStream<ReqT,
     }
 
     private void sendUntilStreamNotReadyOrNoTask() {
-        if (sending.compareAndSet(false, true)) {
-            synchronized (this) {
-                while (isReady() && !isRetargeting) {
-                    Optional<RequestTask> requestTask = prepareForFly();
-                    if (requestTask.isPresent()) {
-                        // only send non-canceled requests
-                        meter.timer(RPCMetric.PipelineReqQueueTime)
-                            .record(System.nanoTime() - requestTask.get().enqueueTS, TimeUnit.NANOSECONDS);
-                        send(requestTask.get().request);
-                        meter.recordCount(RPCMetric.PipelineReqSendCount);
-                    } else {
-                        break;
-                    }
+        if (!sending.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            while (isReady() && !isRetargeting.get()) {
+                Optional<RequestTask> requestTask = prepareForFly();
+                if (requestTask.isPresent()) {
+                    // only send non-canceled requests
+                    meter.timer(RPCMetric.PipelineReqQueueTime)
+                        .record(System.nanoTime() - requestTask.get().enqueueTS, TimeUnit.NANOSECONDS);
+                    send(requestTask.get().request);
+                    meter.recordCount(RPCMetric.PipelineReqSendCount);
+                } else {
+                    break;
                 }
             }
             sending.set(false);
-            synchronized (this) {
-                if (isReady() && !preflightTaskQueue.isEmpty() && !isRetargeting) {
-                    // deal with the spurious notification
-                    sendUntilStreamNotReadyOrNoTask();
-                }
+            if (isReady() && !preflightTaskQueue.isEmpty() && !isRetargeting.get()) {
+                // deal with the spurious notification
+                sendUntilStreamNotReadyOrNoTask();
             }
+        } catch (Throwable t) {
+            sending.set(false);
+            throw t;
         }
     }
 
@@ -211,7 +212,8 @@ public class ManagedRequestPipeline<ReqT, RespT> extends ManagedBiDiStream<ReqT,
     }
 
     private void cancelInflightTasks(Throwable e) {
-        synchronized (this) {
+        long stamp = lock.writeLock();
+        try {
             if (inflightTaskQueue.isEmpty() && preflightTaskQueue.isEmpty()) {
                 return;
             }
@@ -223,6 +225,8 @@ public class ManagedRequestPipeline<ReqT, RespT> extends ManagedBiDiStream<ReqT,
             }
             log.debug("ReqPipeline@{} abort {} in-flight requests: method={}", this.hashCode(),
                 i, methodDescriptor.getBareMethodName());
+        } finally {
+            lock.unlockWrite(stamp);
         }
     }
 
