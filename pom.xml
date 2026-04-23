@@ -1154,6 +1154,7 @@
                         <exclude>**/META-INF/services/**</exclude>
                         <exclude>**/*.crt</exclude>
                         <exclude>**/*.pem</exclude>
+                        <exclude>**/*.key</exclude>
                         <exclude>**/MANIFEST.MF</exclude>
                         <exclude>licenses/*.txt</exclude>
                         <exclude>DISCLAIMER</exclude>
@@ -1161,6 +1162,14 @@
                         <exclude>LICENSE-Binary</exclude>
                         <exclude>NOTICE</exclude>
                         <exclude>NOTICE-Binary</exclude>
+                        <exclude>CLAUDE.md</exclude>
+                        <exclude>Dockerfile.broker</exclude>
+                        <exclude>deploy/helm/**</exclude>
+                        <exclude>tests/nanosdk_official_demo/**</exclude>
+                        <exclude>tests/swift_mqtt_test/**</exclude>
+                        <exclude>bifromq-native/*.toml</exclude>
+                        <exclude>**/*.sha512</exclude>
+                        <exclude>**/Vendor/**</exclude>
                     </excludes>
                     <excludeSubProjects>false</excludeSubProjects>
                 </configuration>
