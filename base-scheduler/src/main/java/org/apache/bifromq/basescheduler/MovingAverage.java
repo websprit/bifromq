@@ -21,11 +21,13 @@ package org.apache.bifromq.basescheduler;
 
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.StampedLock;
 
 public class MovingAverage {
     private final long freshness;
     private final Observation[] observations;
     private final AtomicReference<Stat> lastStat = new AtomicReference<>(new Stat(0, 0, 0, 0));
+    private final StampedLock lock = new StampedLock();
     private long total;
     private int head;
     private int tail;
@@ -39,42 +41,57 @@ public class MovingAverage {
         this.freshness = freshness.toNanos();
     }
 
-    public synchronized void observe(long read) {
-        long lastObserveTs = System.nanoTime();
-        observations[head].ts = lastObserveTs;
-        observations[head].read = read;
-        total += read;
-        head = (head + 1) % observations.length;
-        if (head == tail) {
-            // make room for head
-            total -= observations[head].read;
-            tail = (tail + 1) % observations.length;
+    public void observe(long read) {
+        long stamp = lock.writeLock();
+        try {
+            long lastObserveTs = System.nanoTime();
+            observations[head].ts = lastObserveTs;
+            observations[head].read = read;
+            total += read;
+            head = (head + 1) % observations.length;
+            if (head == tail) {
+                // make room for head
+                total -= observations[head].read;
+                tail = (tail + 1) % observations.length;
+            }
+            while (lastObserveTs - observations[tail].ts > freshness) {
+                // remove staled observation
+                total -= observations[tail].read;
+                tail = (tail + 1) % observations.length;
+            }
+            updateStat(read, lastObserveTs);
+        } finally {
+            lock.unlockWrite(stamp);
         }
-        while (lastObserveTs - observations[tail].ts > freshness) {
-            // remove staled observation
-            total -= observations[tail].read;
-            tail = (tail + 1) % observations.length;
-        }
-        updateStat(read, lastObserveTs);
     }
 
     public long max() {
-        long now = System.nanoTime();
-        Stat stat = lastStat.get();
-        if (now - stat.lastObserveTs > freshness) {
-            return 0;
-        } else {
-            return stat.max;
+        long stamp = lock.readLock();
+        try {
+            long now = System.nanoTime();
+            Stat stat = lastStat.get();
+            if (now - stat.lastObserveTs > freshness) {
+                return 0;
+            } else {
+                return stat.max;
+            }
+        } finally {
+            lock.unlockRead(stamp);
         }
     }
 
     public long estimate() {
-        long now = System.nanoTime();
-        Stat stat = lastStat.get();
-        if (now - stat.lastObserveTs > freshness) {
-            return 0;
-        } else {
-            return stat.avg;
+        long stamp = lock.readLock();
+        try {
+            long now = System.nanoTime();
+            Stat stat = lastStat.get();
+            if (now - stat.lastObserveTs > freshness) {
+                return 0;
+            } else {
+                return stat.avg;
+            }
+        } finally {
+            lock.unlockRead(stamp);
         }
     }
 

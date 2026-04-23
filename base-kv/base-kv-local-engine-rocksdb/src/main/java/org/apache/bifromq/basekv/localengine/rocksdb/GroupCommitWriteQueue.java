@@ -49,7 +49,11 @@ final class GroupCommitWriteQueue {
     private final RocksDB db;
     private final WriteOptions writeOptions;
     private final ReentrantLock lock = new ReentrantLock();
-    private final List<PendingWrite> pendingWrites = new ArrayList<>();
+    private List<PendingWrite> pendingWrites = new ArrayList<>(64);
+    // Recycled list reused by the leader to avoid lock-time allocation.
+    // Leader writes it after signaling followers; next leader reads it inside the lock.
+    // Volatile ensures visibility across the lock boundary.
+    private volatile List<PendingWrite> recycledList;
 
     GroupCommitWriteQueue(RocksDB db, WriteOptions writeOptions) {
         this.db = db;
@@ -77,10 +81,12 @@ final class GroupCommitWriteQueue {
                 isLeader = true;
             }
             if (isLeader) {
-                // Drain all pending writes while holding lock,
-                // so new arrivals go into the next batch
-                toWrite = new ArrayList<>(pendingWrites);
-                pendingWrites.clear();
+                // Swap references instead of copying to minimize lock hold time.
+                // Reuse a previously recycled list if available to avoid allocation.
+                toWrite = pendingWrites;
+                List<PendingWrite> next = recycledList;
+                pendingWrites = next != null ? next : new ArrayList<>(64);
+                recycledList = null;
             }
         } finally {
             lock.unlock();
@@ -94,16 +100,12 @@ final class GroupCommitWriteQueue {
                     // Single batch — write directly, no merge overhead
                     db.write(writeOptions, toWrite.get(0).batch);
                 } else {
-                    // Multiple batches — write sequentially under leader ownership.
-                    // RocksDB's internal pipelined write (enabled via setEnablePipelinedWrite)
-                    // will coalesce WAL syncs automatically.
-                    //
-                    // TODO(P0-1): When rocksdbjni exposes WriteBatch.append(), merge all
-                    // follower batches into one merged WriteBatch and call db.write() once
-                    // to eliminate per-batch JNI crossing overhead. Currently blocked by
-                    // missing Java API (C++ WriteBatch::Append() is not exposed via JNI).
-                    for (PendingWrite pw : toWrite) {
-                        db.write(writeOptions, pw.batch);
+                    // Multiple batches — merge into one WriteBatch and write once.
+                    try (WriteBatch merged = new WriteBatch()) {
+                        for (PendingWrite pw : toWrite) {
+                            merged.append(pw.batch);
+                        }
+                        db.write(writeOptions, merged);
                     }
                 }
             } catch (RocksDBException e) {
@@ -117,6 +119,9 @@ final class GroupCommitWriteQueue {
                     pw.result.complete(null);
                 }
             }
+            // Recycle the list for the next leader to avoid allocation.
+            toWrite.clear();
+            recycledList = toWrite;
         }
 
         // Both leader and followers wait for result here

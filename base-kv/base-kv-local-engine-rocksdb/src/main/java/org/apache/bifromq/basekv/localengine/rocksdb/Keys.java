@@ -33,7 +33,12 @@ class Keys {
     public static final byte[] DATA_SECTION_END = new byte[] {(byte) 0xFF};
 
     public static byte[] toDataKey(ByteString key) {
-        return DATA_PREFIX.concat(key).toByteArray();
+        int prefixLen = DATA_PREFIX.size();
+        int keyLen = key.size();
+        byte[] result = new byte[prefixLen + keyLen];
+        DATA_PREFIX.copyTo(result, 0);
+        key.copyTo(result, prefixLen);
+        return result;
     }
 
     public static ByteString fromDataKey(byte[] rawKey) {
@@ -41,11 +46,20 @@ class Keys {
     }
 
     public static byte[] toDataKey(byte[] key) {
-        return DATA_PREFIX.concat(unsafeWrap(key)).toByteArray();
+        int prefixLen = DATA_PREFIX.size();
+        byte[] result = new byte[prefixLen + key.length];
+        DATA_PREFIX.copyTo(result, 0);
+        System.arraycopy(key, 0, result, prefixLen, key.length);
+        return result;
     }
 
     public static byte[] toMetaKey(ByteString key) {
-        return METADATA_PREFIX.concat(key).toByteArray();
+        int prefixLen = METADATA_PREFIX.size();
+        int keyLen = key.size();
+        byte[] result = new byte[prefixLen + keyLen];
+        METADATA_PREFIX.copyTo(result, 0);
+        key.copyTo(result, prefixLen);
+        return result;
     }
 
     public static ByteString fromMetaKey(byte[] rawKey) {

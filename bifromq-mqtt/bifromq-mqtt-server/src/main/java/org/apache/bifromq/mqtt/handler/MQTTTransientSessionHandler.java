@@ -104,7 +104,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
     private long nextSendSeq = 0;
     private long msgSeqNo = 0;
     private AtomicLong subNumGauge;
-    private final Cache<String, CompletableFuture<CheckResult>> authCache;
+    private final Cache<TopicQosKey, CompletableFuture<CheckResult>> authCache;
 
     protected MQTTTransientSessionHandler(TenantSettings settings,
             ITenantMeter tenantMeter,
@@ -369,9 +369,7 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
         for (Map.Entry<MatchedTopicFilter, TopicFilterOption> entry : matchedTopicFilters.entrySet()) {
             MatchedTopicFilter mtf = entry.getKey();
             TopicFilterOption opt = entry.getValue();
-            // Cache Key: TopicFilter + '\0' + QoS (use null char to avoid collision with
-            // MQTT '#' wildcard)
-            String key = mtf.topicFilter() + "\0" + opt.getQos().getNumber();
+            TopicQosKey key = new TopicQosKey(mtf.topicFilter(), opt.getQos().getNumber());
             CompletableFuture<CheckResult> f = authCache.get(key, k -> addFgTask(
                     authProvider.checkPermission(clientInfo(), buildSubAction(mtf.topicFilter(), opt.getQos()))));
             topicFilterAndPermissions.add(new TopicFilterAndPermission(mtf.topicFilter(), opt, f));
@@ -498,5 +496,11 @@ public abstract class MQTTTransientSessionHandler extends MQTTSessionHandler imp
     private record TopicFilterAndPermission(String topicFilter,
             TopicFilterOption option,
             CompletableFuture<CheckResult> permissionCheckFuture) {
+    }
+
+    /**
+     * Lightweight composite key for auth cache to avoid string concatenation GC pressure.
+     */
+    private record TopicQosKey(String topicFilter, int qos) {
     }
 }

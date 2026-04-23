@@ -80,6 +80,7 @@ final class RocksDBOptionsUtil {
                 .setWalTtlSeconds(0)
                 .setEnablePipelinedWrite(true)
                 .setTwoWriteQueues(false)
+                .setWalBytesPerSync(1024 * 1024)
                 .setRateLimiter(autoRelease(new RateLimiter(512 * SizeUnit.MB,
                         RateLimiter.DEFAULT_REFILL_PERIOD_MICROS,
                         RateLimiter.DEFAULT_FAIRNESS,

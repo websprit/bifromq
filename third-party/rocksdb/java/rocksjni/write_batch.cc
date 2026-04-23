@@ -478,6 +478,28 @@ void Java_org_rocksdb_WriteBatch_iterate(JNIEnv* env, jclass /*jcls*/,
 
 /*
  * Class:     org_rocksdb_WriteBatch
+ * Method:    append
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_WriteBatch_append(JNIEnv* env, jclass /*jcls*/,
+                                        jlong jwb_handle,
+                                        jlong jsrcwb_handle) {
+  auto* wb = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+  auto* src = reinterpret_cast<ROCKSDB_NAMESPACE::WriteBatch*>(jsrcwb_handle);
+  assert(src != nullptr);
+
+  ROCKSDB_NAMESPACE::Status s =
+      ROCKSDB_NAMESPACE::WriteBatchInternal::Append(wb, src);
+
+  if (s.ok()) {
+    return;
+  }
+  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
  * Method:    data
  * Signature: (J)[B
  */

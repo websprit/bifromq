@@ -176,6 +176,7 @@ case "$TARGET_OS" in
         COMMON_FLAGS="$COMMON_FLAGS -DOS_MACOSX"
         PLATFORM_SHARED_EXT=dylib
         PLATFORM_SHARED_LDFLAGS="-dynamiclib -install_name "
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -L/opt/homebrew/lib"
         # PORT_FILES=port/darwin/darwin_specific.cc
         ;;
     IOS)

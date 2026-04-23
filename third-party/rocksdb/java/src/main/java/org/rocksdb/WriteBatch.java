@@ -64,6 +64,17 @@ public class WriteBatch extends AbstractWriteBatch {
   }
 
   /**
+   * Append the contents of another WriteBatch to this one.
+   *
+   * @param source the WriteBatch to append from.
+   *
+   * @throws RocksDBException if an error occurs during append.
+   */
+  public void append(final WriteBatch source) throws RocksDBException {
+    append(nativeHandle_, source.nativeHandle_);
+  }
+
+  /**
    * Retrieve the serialized version of this batch.
    *
    * @return the serialized representation of this write batch.
@@ -373,6 +384,8 @@ public class WriteBatch extends AbstractWriteBatch {
   private static native long newWriteBatch(final int reserved_bytes);
   private static native long newWriteBatch(final byte[] serialized, final int serializedLength);
   private static native void iterate(final long handle, final long handlerHandle)
+      throws RocksDBException;
+  private static native void append(final long handle, final long sourceHandle)
       throws RocksDBException;
   private static native byte[] data(final long nativeHandle) throws RocksDBException;
   private static native long getDataSize(final long nativeHandle);

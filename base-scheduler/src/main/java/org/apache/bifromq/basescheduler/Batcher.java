@@ -27,10 +27,14 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.util.ArrayList;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,6 +76,9 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
     // Future to signal shutdown completion
     private final CompletableFuture<Void> shutdownFuture = new CompletableFuture<>();
     private final AtomicLong inFlightWeight = new AtomicLong(0L);
+    // Pending timeouts for batch-call execute() futures; ordered by deadline because
+    // all entries share the same maxBurstLatency offset and are added in emission order.
+    private final ConcurrentLinkedQueue<TimeoutEntry> pendingTimeouts = new ConcurrentLinkedQueue<>();
 
     Batcher(String name,
             BatcherKeyT key,
@@ -123,6 +130,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         inflightWeightGauge = Gauge.builder("batcher.inflight.size", inFlightWeight::get)
                 .tags(tags)
                 .register(Metrics.globalRegistry);
+        BatchTimeoutWheel.register(this);
     }
 
     public CompletableFuture<CallResultT> submit(BatcherKeyT batcherKey, CallT request) {
@@ -181,6 +189,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
             batchCall.destroy();
         }
         batchCallBuilder.close();
+        BatchTimeoutWheel.unregister(this);
     }
 
     private void trigger() {
@@ -227,9 +236,8 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
             int finalBatchSize = batchedCallNums;
             inFlightWeight.addAndGet(batchWeight);
             CompletableFuture<Void> future = batchCall.execute();
-            future
-                    .orTimeout(maxBurstLatency, TimeUnit.NANOSECONDS)
-                    .whenComplete((v, e) -> {
+            pendingTimeouts.offer(new TimeoutEntry(future, System.nanoTime() + maxBurstLatency));
+            future.whenComplete((v, e) -> {
                         long execEnd = System.nanoTime();
                         if (e != null) {
                             if (e instanceof BackPressureException || e instanceof TimeoutException) {
@@ -290,6 +298,62 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
     private void returnBatchCall(IBatchCall<CallT, CallResultT, BatcherKeyT> batchCall, boolean abort) {
         batchCall.reset(abort);
         batchPool.offer(batchCall);
+    }
+
+    void expireTimeouts() {
+        TimeoutEntry entry;
+        while ((entry = pendingTimeouts.peek()) != null) {
+            if (entry.future.isDone()) {
+                pendingTimeouts.poll();
+            } else if (entry.deadlineNanos - System.nanoTime() <= 0) {
+                pendingTimeouts.poll();
+                entry.future.completeExceptionally(
+                        new TimeoutException("Batch call timed out after " + maxBurstLatency + "ns"));
+            } else {
+                break;
+            }
+        }
+    }
+
+    private static final class TimeoutEntry {
+        final CompletableFuture<Void> future;
+        final long deadlineNanos;
+
+        TimeoutEntry(CompletableFuture<Void> future, long deadlineNanos) {
+            this.future = future;
+            this.deadlineNanos = deadlineNanos;
+        }
+    }
+
+    private static final class BatchTimeoutWheel {
+        private static final long TICK_MS = 5;
+        private static final ScheduledExecutorService scheduler =
+                new ScheduledThreadPoolExecutor(1, r -> {
+                    Thread t = new Thread(r, "batch-timeout-wheel");
+                    t.setDaemon(true);
+                    return t;
+                });
+        private static final Set<Batcher<?, ?, ?>> batchers = ConcurrentHashMap.newKeySet();
+
+        static {
+            scheduler.scheduleWithFixedDelay(() -> {
+                for (Batcher<?, ?, ?> batcher : batchers) {
+                    try {
+                        batcher.expireTimeouts();
+                    } catch (Throwable t) {
+                        log.error("Error expiring timeouts for batcher", t);
+                    }
+                }
+            }, TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
+        }
+
+        static void register(Batcher<?, ?, ?> batcher) {
+            batchers.add(batcher);
+        }
+
+        static void unregister(Batcher<?, ?, ?> batcher) {
+            batchers.remove(batcher);
+        }
     }
 
     private enum State {

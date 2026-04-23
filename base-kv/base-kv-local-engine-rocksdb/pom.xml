@@ -43,9 +43,7 @@
         <dependency>
             <groupId>org.rocksdb</groupId>
             <artifactId>rocksdbjni</artifactId>
-            <version>${rocksdb.version}</version>
-            <!-- native jar with .so / .jnilib, classifier selected by OS profile below -->
-            <classifier>${rocksdb.native.classifier}</classifier>
+            <!-- built locally from third-party/rocksdb/java -->
         </dependency>
         <!-- test -->
         <dependency>
