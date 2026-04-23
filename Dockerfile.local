@@ -1,0 +1,18 @@
+FROM --platform=linux/amd64 eclipse-temurin:25-jre
+
+ENV BIFROMQ_HOME=/home/bifromq
+
+COPY target/output/apache-bifromq-4.0.0-incubating.tar.gz /tmp/
+RUN tar xzf /tmp/apache-bifromq-4.0.0-incubating.tar.gz -C /opt \
+    && mv /opt/apache-bifromq-4.0.0-incubating ${BIFROMQ_HOME} \
+    && rm /tmp/apache-bifromq-4.0.0-incubating.tar.gz \
+    && mkdir -p ${BIFROMQ_HOME}/logs
+
+WORKDIR ${BIFROMQ_HOME}
+
+EXPOSE 1883
+EXPOSE 14567/udp
+EXPOSE 1884
+EXPOSE 8080
+
+CMD ["/bin/bash", "-c", "${BIFROMQ_HOME}/bin/standalone.sh start -fg"]
