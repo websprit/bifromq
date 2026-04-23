@@ -1,13 +1,13 @@
 # -- Number of BifroMQ replicas (cluster nodes)
-replicaCount: 3
+replicaCount: 1
 
 image:
   # -- Docker image repository
-  repository: 192.168.75.185:5000/apache-bifromq
+  repository: apache/bifromq
   # -- Docker image tag (defaults to Chart appVersion)
-  tag: "perf-opt"
+  tag: "quic-test-amd64"
   # -- Image pull policy
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 # -- Image pull secrets for private registries
 imagePullSecrets: []
@@ -58,6 +58,10 @@ mqtt:
   wsPort: 8080
   # -- WebSocket path
   wsPath: "/mqtt"
+  # -- Enable MQTT over QUIC
+  quicEnabled: true
+  # -- MQTT QUIC listener port
+  quicPort: 14567
 
 # ============================================================
 # TLS Certificate Configuration
@@ -66,9 +70,9 @@ tls:
   # -- Name of an existing K8s Secret containing TLS certificates.
   #    Leave empty to use auto-generated self-signed certificates.
   #    The Secret should contain: tls.crt, tls.key, and optionally ca.crt
-  certSecretName: ""
+  certSecretName: "bifromq-certs"
   # -- Mount path inside the container for certificate files
-  mountPath: "/home/bifromq/certs"
+  mountPath: "/home/bifromq/conf/certs"
   # -- Certificate file name in the Secret (mapped to certFile in sslConfig)
   certFile: "tls.crt"
   # -- Private key file name in the Secret (mapped to keyFile in sslConfig)
@@ -92,7 +96,7 @@ apiServer:
 # ============================================================
 service:
   # -- Service type: ClusterIP, NodePort, or LoadBalancer
-  type: ClusterIP
+  type: NodePort
   # -- Annotations for the service (e.g. for cloud LB config)
   annotations: {}
   # -- External IPs to bind the service to (e.g. a node IP for direct access)
@@ -144,11 +148,11 @@ persistence:
 # ============================================================
 resources:
   requests:
-    cpu: "4"
-    memory: "8Gi"
+    cpu: "1"
+    memory: "2Gi"
   limits:
-    cpu: "4"
-    memory: "8Gi"
+    cpu: "2"
+    memory: "4Gi"
 
 # ============================================================
 # Node Scheduling

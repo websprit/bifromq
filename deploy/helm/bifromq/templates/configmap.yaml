@@ -38,6 +38,17 @@ data:
           port: {{ .Values.mqtt.wsPort }}
           wsPath: {{ .Values.mqtt.wsPath | quote }}
         {{- end }}
+        {{- if .Values.mqtt.quicEnabled }}
+        quicListener:
+          enable: true
+          port: {{ .Values.mqtt.quicPort }}
+          {{- if .Values.tls.certSecretName }}
+          sslConfig:
+            certFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.certFile }}"
+            keyFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.keyFile }}"
+            clientAuth: {{ .Values.tls.clientAuth }}
+          {{- end }}
+        {{- end }}
 
     {{- if .Values.apiServer.enabled }}
     apiServerConfig:

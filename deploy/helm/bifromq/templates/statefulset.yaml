@@ -55,6 +55,11 @@ spec:
               containerPort: {{ .Values.apiServer.port }}
               protocol: TCP
             {{- end }}
+            {{- if .Values.mqtt.quicEnabled }}
+            - name: mqtt-quic
+              containerPort: {{ .Values.mqtt.quicPort }}
+              protocol: UDP
+            {{- end }}
             - name: cluster
               containerPort: {{ .Values.clusterConfig.port }}
               protocol: TCP
