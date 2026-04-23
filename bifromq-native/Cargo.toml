@@ -1,0 +1,18 @@
+[package]
+name = "bifromq-native"
+version = "0.1.0"
+edition = "2021"
+description = "Native Rust implementations for BifroMQ performance-critical paths"
+
+[lib]
+crate-type = ["cdylib"]
+name = "bifromq_native"
+
+[dependencies]
+flate2 = { version = "1", default-features = false, features = ["zlib-ng"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
