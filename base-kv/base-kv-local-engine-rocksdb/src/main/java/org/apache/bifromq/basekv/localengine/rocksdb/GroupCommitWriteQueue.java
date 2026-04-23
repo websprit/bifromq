@@ -95,8 +95,13 @@ final class GroupCommitWriteQueue {
                     db.write(writeOptions, toWrite.get(0).batch);
                 } else {
                     // Multiple batches — write sequentially under leader ownership.
-                    // RocksDB's internal WAL group commit will coalesce these
-                    // into fewer fsync calls automatically.
+                    // RocksDB's internal pipelined write (enabled via setEnablePipelinedWrite)
+                    // will coalesce WAL syncs automatically.
+                    //
+                    // TODO(P0-1): When rocksdbjni exposes WriteBatch.append(), merge all
+                    // follower batches into one merged WriteBatch and call db.write() once
+                    // to eliminate per-batch JNI crossing overhead. Currently blocked by
+                    // missing Java API (C++ WriteBatch::Append() is not exposed via JNI).
                     for (PendingWrite pw : toWrite) {
                         db.write(writeOptions, pw.batch);
                     }

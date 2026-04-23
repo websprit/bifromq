@@ -70,7 +70,7 @@ public final class RocksDBDefaultConfigs {
                 configBuilder.putFields(WRITE_BUFFER_SIZE, toValue(128 * SizeUnit.MB));
                 configBuilder.putFields(MAX_WRITE_BUFFER_NUMBER, toValue(6));
                 configBuilder.putFields(MIN_WRITE_BUFFER_NUMBER_TO_MERGE, toValue(2));
-                configBuilder.putFields(MIN_BLOB_SIZE, toValue(2 * SizeUnit.KB));
+                configBuilder.putFields(MIN_BLOB_SIZE, toValue(32 * SizeUnit.KB));
                 configBuilder.putFields(INCREASE_PARALLELISM,
                                 toValue(Math.max(EnvProvider.INSTANCE.availableProcessors() / 4, 2)));
                 configBuilder.putFields(MAX_BACKGROUND_JOBS,
@@ -84,6 +84,7 @@ public final class RocksDBDefaultConfigs {
                 CP = sharedConfig.toBuilder()
                                 .putFields(DB_CHECKPOINT_ROOT_DIR, toValue(""))
                                 .putFields(GROUP_COMMIT, toValue(false))
+                                .putFields(MIN_BLOB_SIZE, toValue(64 * SizeUnit.MB))
                                 .build();
 
                 // Build WAL based on shared config
