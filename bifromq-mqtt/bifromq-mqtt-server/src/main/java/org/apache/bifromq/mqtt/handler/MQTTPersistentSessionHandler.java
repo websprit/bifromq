@@ -412,14 +412,6 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         }
     }
 
-    private void scheduleConfirmTimeout(long upToSeq) {
-        confirmTimeout = ctx.executor().schedule(() -> {
-            if (upToSeq < inboxConfirmedUpToSeq) {
-                confirmSendBuffer();
-            }
-        }, ThreadLocalRandom.current().nextLong(15, 45), TimeUnit.SECONDS);
-    }
-
     private void confirmQoS0() {
         if (qos0Confirming) {
             return;
@@ -527,7 +519,28 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                             // never happens
                         }
                     }
-                }, ctx.executor());
+                    case NO_INBOX, CONFLICT ->
+                        handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
+                    case BACK_PRESSURE_REJECTED -> {
+                        inboxConfirming = false;
+                        // schedule confirm later
+                        confirmTimeout = ctx.executor()
+                            .schedule(this::confirmSendBuffer, ThreadLocalRandom.current().nextLong(15, 45), TimeUnit.SECONDS);
+                    }
+                    case TRY_LATER -> {
+                        // try again with same version
+                        inboxConfirming = false;
+                        if (upToSeq < inboxConfirmedUpToSeq) {
+                            confirmSendBuffer();
+                        } else {
+                            inboxReader.hint(clientReceiveQuota());
+                        }
+                    }
+                    default -> {
+                        // never happens
+                    }
+                }
+            }, ctx.executor());
     }
 
     private void consume(Fetched fetched) {
