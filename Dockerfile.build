@@ -138,12 +138,36 @@ ENV BIFROMQ_HOME=/bifromq
 # Copy the exploded release tarball from the Java builder stage
 COPY --from=java-builder /opt/apache-bifromq-4.0.0-incubating ${BIFROMQ_HOME}
 
-# Copy runtime configuration (standalone.yml + TLS certs)
-# If these files do not exist in the build context, Docker will error.
-# Use build-docker.sh which creates minimal placeholders if missing.
-COPY conf/standalone.yml ${BIFROMQ_HOME}/conf/standalone.yml
-COPY conf/certs/server.crt ${BIFROMQ_HOME}/conf/certs/server.crt
-COPY conf/certs/server.key ${BIFROMQ_HOME}/conf/certs/server.key
+# Generate runtime configuration and self-signed TLS certs inline.
+# This avoids requiring external files in the build context (important for CI).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p ${BIFROMQ_HOME}/conf/certs \
+    && openssl req -x509 -newkey rsa:2048 \
+        -keyout ${BIFROMQ_HOME}/conf/certs/server.key \
+        -out ${BIFROMQ_HOME}/conf/certs/server.crt \
+        -days 365 -nodes \
+        -subj "/CN=bifromq" \
+    && cat > ${BIFROMQ_HOME}/conf/standalone.yml <<'EOF'
+metricsTags:
+  env: docker
+
+mqttServiceConfig:
+  server:
+    tcpListener:
+      port: 1883
+    quicListener:
+      enable: true
+      port: 1884
+      sslConfig:
+        certFile: "conf/certs/server.crt"
+        keyFile: "conf/certs/server.key"
+        clientAuth: "NONE"
+
+clusterConfig:
+  env: "docker"
+EOF
 
 WORKDIR ${BIFROMQ_HOME}
 
