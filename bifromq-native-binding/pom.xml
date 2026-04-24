@@ -33,7 +33,7 @@
 
     <properties>
         <!-- java.lang.foreign (FFM API) was finalized in JDK 22.
-             Compiling with --release 25 for JDK 25 compatibility. -->
+             Compiling with release 25 for JDK 25 compatibility. -->
         <maven.compiler.release>25</maven.compiler.release>
     </properties>
 
