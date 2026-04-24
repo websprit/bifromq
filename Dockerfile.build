@@ -120,9 +120,10 @@ RUN mvn install:install-file \
 
 # --- Build the full project ---
 # Default: compile and package release tarball.
-# NOTE: Explicitly clear MAVEN_OPTS to prevent the maven image's entrypoint
-# or cached env from injecting unexpected JVM args (e.g. /root/.m2) that
-# mvnw would misinterpret as lifecycle phases.
+# NOTE: The maven:3.9.6-eclipse-temurin-21 image sets MAVEN_CONFIG=/root/.m2.
+# The mvnw script (line 327/338) expands MAVEN_CONFIG as a CLI arg, causing
+# Maven to treat /root/.m2 as a lifecycle phase. We explicitly clear it here.
+ENV MAVEN_CONFIG=""
 ENV MAVEN_OPTS=""
 RUN ./mvnw clean verify -DskipTests \
         -Drat.skip=true \
