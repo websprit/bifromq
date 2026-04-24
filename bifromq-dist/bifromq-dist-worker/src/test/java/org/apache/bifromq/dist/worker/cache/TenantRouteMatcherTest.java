@@ -407,6 +407,11 @@ public class TenantRouteMatcherTest {
         }
 
         @Override
+        public ByteString getDirect(ByteString key) {
+            return data.get(key);
+        }
+
+        @Override
         public IKVIterator iterator() {
             lastIterator = new TreeMapKVIterator(data);
             return lastIterator;
