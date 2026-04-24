@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bifromq-config
+  namespace: bifromq
+data:
+  standalone.yml: |
+    metricsTags:
+      env: local-k8s
+
+    mqttServiceConfig:
+      server:
+        tcpListener:
+          port: 1883
+        quicListener:
+          enable: true
+          port: 1884
+          sslConfig:
+            certFile: "/bifromq/conf/certs/server.crt"
+            keyFile: "/bifromq/conf/certs/server.key"
+            clientAuth: "NONE"
+
+    clusterConfig:
+      env: "local-k8s"

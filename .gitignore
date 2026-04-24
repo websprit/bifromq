@@ -32,3 +32,8 @@ tree.txt
 .DS_Store
 Thumbs.db
 
+# Docker build auto-generated placeholders (certs, minimal config)
+# These are created by build-docker.sh when missing; do not commit.
+conf/standalone.yml
+conf/certs/
+

@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: bifromq
+  namespace: bifromq
+  labels:
+    app: bifromq
+spec:
+  serviceName: bifromq-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bifromq
+  template:
+    metadata:
+      labels:
+        app: bifromq
+    spec:
+      containers:
+        - name: bifromq
+          image: apache/bifromq:4.0.0-incubating
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mqtt-tcp
+              containerPort: 1883
+              protocol: TCP
+            - name: mqtt-quic
+              containerPort: 1884
+              protocol: UDP
+            - name: admin
+              containerPort: 8080
+              protocol: TCP
+            - name: cluster-gossip
+              containerPort: 14567
+              protocol: UDP
+          volumeMounts:
+            - name: config
+              mountPath: /bifromq/conf/standalone.yml
+              subPath: standalone.yml
+              readOnly: true
+            - name: certs
+              mountPath: /bifromq/conf/certs
+              readOnly: true
+            - name: data
+              mountPath: /bifromq/data
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          livenessProbe:
+            tcpSocket:
+              port: 1883
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 1883
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: bifromq-config
+        - name: certs
+          secret:
+            secretName: bifromq-certs
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 10Gi

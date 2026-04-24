@@ -1,0 +1,159 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# ========================================================================
+# Cross-Platform Docker Build for BifroMQ (linux/amd64)
+# ========================================================================
+#
+# This Dockerfile builds a complete BifroMQ release image from source,
+# including:
+#   1. Rust native libraries (bifromq-native) via cargo
+#   2. RocksDB JNI (with custom write_batch.cc modifications) via make
+#   3. Full Java project via Maven
+#
+# Usage:
+#   ./build-docker.sh [--tag <tag>] [--push|--load]
+#
+# Multi-stage design:
+#   Stage 1 (native-builder): Compile Rust + RocksDB C++ native code
+#   Stage 2 (java-builder):   Compile Java, package release tarball
+#   Stage 3 (runtime):       Minimal JRE image for k8s deployment
+# ========================================================================
+
+# =============================================================================
+# Stage 1: Native Build (Rust + RocksDB JNI)
+# =============================================================================
+# We use rust:1.83-slim-bookworm as the base because:
+#   - It is Debian-based (apt available for build-essential and openjdk)
+#   - It already contains the Rust toolchain (cargo, rustc)
+#   - We need both Rust and C++ toolchains in the same stage
+FROM rust:1.83-slim-bookworm AS native-builder
+
+WORKDIR /build
+
+# Install OpenJDK 21 (required by RocksDB make rocksdbjava) and build tools
+# Use Eclipse Temurin (Adoptium) repository since Debian bookworm does not ship OpenJDK 21
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates wget gnupg \
+    && wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /usr/share/keyrings/adoptium.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" > /etc/apt/sources.list.d/adoptium.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        temurin-21-jdk \
+        build-essential \
+        make \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
+
+# --- Build RocksDB JNI ---
+# COPY only rocksdb sources first for layer cache (large, slow to compile)
+COPY third-party/rocksdb/ /build/third-party/rocksdb/
+RUN cd /build/third-party/rocksdb \
+    && rm -f make_config.mk \
+    && make clean 2>/dev/null || true \
+    && make -j$(nproc) rocksdbjava
+
+# --- Build BifroMQ Rust native ---
+COPY bifromq-native/ /build/bifromq-native/
+RUN cd /build/bifromq-native \
+    && cargo build --release
+
+# =============================================================================
+# Stage 2: Java Build
+# =============================================================================
+FROM maven:3.9.6-eclipse-temurin-21 AS java-builder
+
+WORKDIR /build
+
+# Optional: copy local Maven cache to speed up dependency resolution
+COPY m2-cache /root/.m2
+
+# Copy full project source
+COPY . /build
+
+# --- Inject native artifacts from Stage 1 ---
+
+# 1. Rust native library: bifromq-native-binding loads this from classpath
+COPY --from=native-builder \
+    /build/bifromq-native/target/release/libbifromq_native.so \
+    /build/bifromq-native-binding/src/main/resources/native/linux-x86_64/
+
+# 2. RocksDB JNI native library: the third-party/rocksdb/java POM packages
+#    target/*.so into the JAR via its <resources> configuration. We place
+#    the .so here BEFORE mvn clean so that maven-clean-plugin's exclude
+#    rules (configured in third-party/rocksdb/java/pom.xml) keep it across
+#    the clean phase.
+COPY --from=native-builder \
+    /build/third-party/rocksdb/java/target/librocksdbjni-linux64.so \
+    /build/third-party/rocksdb/java/target/
+
+# 3. RocksDB JNI jar: produced by make rocksdbjava, contains both Java classes
+#    and the native .so. We install it to the local Maven repo so that
+#    base-kv-local-engine-rocksdb resolves it from the reactor.
+COPY --from=native-builder \
+    /build/third-party/rocksdb/java/target/rocksdbjni-*.jar \
+    /tmp/rocksdbjni.jar
+RUN mvn install:install-file \
+    -Dfile=/tmp/rocksdbjni.jar \
+    -DgroupId=org.rocksdb \
+    -DartifactId=rocksdbjni \
+    -Dversion=11.2.0 \
+    -Dpackaging=jar \
+    --no-transfer-progress
+
+# --- Build the full project ---
+# Default: compile and package release tarball.
+# MAVEN_OPTS build-arg can be used to pass -Pbuild-release, etc.
+ARG MAVEN_OPTS=""
+RUN ./mvnw clean verify -DskipTests \
+    -Drat.skip=true \
+    -Dcheckstyle.skip=true \
+    --no-transfer-progress \
+    ${MAVEN_OPTS} \
+    && tar xzf target/output/apache-bifromq-4.0.0-incubating.tar.gz -C /opt
+
+# =============================================================================
+# Stage 3: Runtime
+# =============================================================================
+FROM eclipse-temurin:21-jre
+
+ENV BIFROMQ_HOME=/bifromq
+
+# Copy the exploded release tarball from the Java builder stage
+COPY --from=java-builder /opt/apache-bifromq-4.0.0-incubating ${BIFROMQ_HOME}
+
+# Copy runtime configuration (standalone.yml + TLS certs)
+# If these files do not exist in the build context, Docker will error.
+# Use build-docker.sh which creates minimal placeholders if missing.
+COPY conf/standalone.yml ${BIFROMQ_HOME}/conf/standalone.yml
+COPY conf/certs/server.crt ${BIFROMQ_HOME}/conf/certs/server.crt
+COPY conf/certs/server.key ${BIFROMQ_HOME}/conf/certs/server.key
+
+WORKDIR ${BIFROMQ_HOME}
+
+# MQTT over TCP
+EXPOSE 1883
+# Cluster UDP gossip
+EXPOSE 14567/udp
+# MQTT over QUIC
+EXPOSE 1884
+# Admin HTTP/gRPC
+EXPOSE 8080
+
+CMD ["/bin/bash", "-c", "${BIFROMQ_HOME}/bin/standalone.sh start && tail -f ${BIFROMQ_HOME}/logs/info.log"]

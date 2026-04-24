@@ -1,0 +1,67 @@
+# ========================================================================
+# Docker Build Context Exclusions
+# ========================================================================
+# These files/directories are excluded from the Docker build context
+# to keep the COPY . /build layer small and fast.
+#
+# IMPORTANT: Do NOT exclude source files needed by Maven/Gradle/Cargo.
+# Only exclude build artifacts, IDE files, and version control.
+# ========================================================================
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# GitHub
+.github/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs (Maven) - we rebuild everything from source in Docker
+**/target/
+
+# Build outputs (Rust) - Stage 1 recompiles from source
+bifromq-native/target/
+
+# Build outputs (Node/npm - if any)
+node_modules/
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+*.pid
+
+# Test outputs
+**/test-output/
+**/surefire-reports/
+
+# Docker files themselves (not needed inside the build context)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation (not needed for build)
+docs/
+CLAUDE.md
+
+# Release artifacts
+*.tar.gz
+*.zip
+*.sha512
+
+# Local build configuration caches (platform-specific, must be regenerated in Docker)
+third-party/rocksdb/make_config.mk

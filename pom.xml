@@ -56,6 +56,7 @@
         <module>bifromq-session-dict</module>
         <module>bifromq-mqtt</module>
         <module>bifromq-apiserver</module>
+        <module>bifromq-native-binding</module>
 
         <module>build</module>
         <module>coverage-report</module>
@@ -338,6 +339,11 @@
             <dependency>
                 <groupId>org.apache.bifromq</groupId>
                 <artifactId>bifromq-sysprops</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.bifromq</groupId>
+                <artifactId>bifromq-native-binding</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!-- bifromq-plugins -->
