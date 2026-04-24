@@ -120,21 +120,15 @@ RUN mvn install:install-file \
 
 # --- Build the full project ---
 # Default: compile and package release tarball.
-# MAVEN_CLI_OPTS build-arg can be used to pass -Pbuild-release, etc.
-# NOTE: Do NOT use MAVEN_OPTS as the name because mvnw script reads it as JVM options.
-ARG MAVEN_CLI_OPTS=""
-RUN if [ -n "${MAVEN_CLI_OPTS}" ]; then \
-      ./mvnw clean verify -DskipTests \
-          -Drat.skip=true \
-          -Dcheckstyle.skip=true \
-          --no-transfer-progress \
-          ${MAVEN_CLI_OPTS}; \
-    else \
-      ./mvnw clean verify -DskipTests \
-          -Drat.skip=true \
-          -Dcheckstyle.skip=true \
-          --no-transfer-progress; \
-    fi \
+# NOTE: Explicitly clear MAVEN_OPTS to prevent the maven image's entrypoint
+# or cached env from injecting unexpected JVM args (e.g. /root/.m2) that
+# mvnw would misinterpret as lifecycle phases.
+ENV MAVEN_OPTS=""
+RUN ./mvnw clean verify -DskipTests \
+        -Drat.skip=true \
+        -Dcheckstyle.skip=true \
+        --no-transfer-progress \
+        -Pbuild-release \
     && tar xzf target/output/apache-bifromq-4.0.0-incubating.tar.gz -C /opt
 
 # =============================================================================
