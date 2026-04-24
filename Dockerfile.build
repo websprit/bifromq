@@ -185,4 +185,4 @@ EXPOSE 1884
 # Admin HTTP/gRPC
 EXPOSE 8080
 
-CMD ["/bin/bash", "-c", "${BIFROMQ_HOME}/bin/standalone.sh start && tail -f ${BIFROMQ_HOME}/logs/info.log"]
+CMD ["/bin/bash", "-c", "${BIFROMQ_HOME}/bin/standalone.sh start && tail -f --retry ${BIFROMQ_HOME}/logs/info.log"]
