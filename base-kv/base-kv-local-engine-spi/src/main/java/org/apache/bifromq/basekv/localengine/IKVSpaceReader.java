@@ -52,6 +52,14 @@ public interface IKVSpaceReader extends IKVSpaceIdentifiable, AutoCloseable {
     Optional<ByteString> get(ByteString key);
 
     /**
+     * Get the value of a key without Optional boxing.
+     *
+     * @param key the key
+     * @return the value of the key, or null if the key does not exist
+     */
+    ByteString getDirect(ByteString key);
+
+    /**
      * Create a new iterator for the space.
      *
      * @return the iterator

@@ -120,14 +120,15 @@ RUN mvn install:install-file \
 
 # --- Build the full project ---
 # Default: compile and package release tarball.
-# MAVEN_OPTS build-arg can be used to pass -Pbuild-release, etc.
-ARG MAVEN_OPTS=""
-RUN if [ -n "${MAVEN_OPTS}" ]; then \
+# MAVEN_CLI_OPTS build-arg can be used to pass -Pbuild-release, etc.
+# NOTE: Do NOT use MAVEN_OPTS as the name because mvnw script reads it as JVM options.
+ARG MAVEN_CLI_OPTS=""
+RUN if [ -n "${MAVEN_CLI_OPTS}" ]; then \
       ./mvnw clean verify -DskipTests \
           -Drat.skip=true \
           -Dcheckstyle.skip=true \
           --no-transfer-progress \
-          ${MAVEN_OPTS}; \
+          ${MAVEN_CLI_OPTS}; \
     else \
       ./mvnw clean verify -DskipTests \
           -Drat.skip=true \

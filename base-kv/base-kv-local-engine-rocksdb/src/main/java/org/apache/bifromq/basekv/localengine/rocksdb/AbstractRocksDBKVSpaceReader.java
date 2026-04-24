@@ -53,12 +53,12 @@ abstract class AbstractRocksDBKVSpaceReader extends AbstractKVSpaceReader {
     }
 
     @Override
-    protected final Optional<ByteString> doGet(ByteString key) {
+    protected final ByteString doGet(ByteString key) {
         try (ReadOptions readOptions = new ReadOptions()) {
             readOptions.setSnapshot(snapshot().snapshot());
             IRocksDBKVSpaceEpoch dbHandle = handle();
             byte[] data = dbHandle.db().get(dbHandle.cf(), readOptions, toDataKey(key));
-            return Optional.ofNullable(data == null ? null : unsafeWrap(data));
+            return data == null ? null : unsafeWrap(data);
         } catch (RocksDBException rocksDBException) {
             throw new KVEngineException("Get failed", rocksDBException);
         }

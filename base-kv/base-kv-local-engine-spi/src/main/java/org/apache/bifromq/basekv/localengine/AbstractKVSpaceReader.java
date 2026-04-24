@@ -56,10 +56,19 @@ public abstract class AbstractKVSpaceReader implements IKVSpaceReader {
 
     @Override
     public final Optional<ByteString> get(ByteString key) {
-        return opMeters.getCallTimer.record(() -> doGet(key).map(k -> {
-            opMeters.readBytesSummary.record(k.size());
-            return k;
-        }));
+        return opMeters.getCallTimer.record(() -> {
+            ByteString value = doGet(key);
+            if (value != null) {
+                opMeters.readBytesSummary.record(value.size());
+                return Optional.of(value);
+            }
+            return Optional.empty();
+        });
+    }
+
+    @Override
+    public final ByteString getDirect(ByteString key) {
+        return opMeters.getCallTimer.record(() -> doGet(key));
     }
 
     @Override
@@ -82,7 +91,7 @@ public abstract class AbstractKVSpaceReader implements IKVSpaceReader {
 
     protected abstract boolean doExist(ByteString key);
 
-    protected abstract Optional<ByteString> doGet(ByteString key);
+    protected abstract ByteString doGet(ByteString key);
 
     protected abstract IKVSpaceIterator doNewIterator(Boundary subBoundary);
 

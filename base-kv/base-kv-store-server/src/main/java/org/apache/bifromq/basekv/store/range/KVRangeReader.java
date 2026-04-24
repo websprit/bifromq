@@ -105,6 +105,11 @@ class KVRangeReader implements IKVRangeReader {
     }
 
     @Override
+    public final ByteString getDirect(ByteString key) {
+        return kvSpaceReader.getDirect(key);
+    }
+
+    @Override
     public final IKVIterator iterator() {
         return new KVIterator(kvSpaceReader.newIterator());
     }

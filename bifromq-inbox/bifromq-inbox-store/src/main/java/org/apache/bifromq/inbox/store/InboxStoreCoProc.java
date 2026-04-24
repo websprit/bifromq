@@ -408,32 +408,32 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
         if (startFetchFromSeq < nextSeq) {
             // locate the first record to scan
             long currSeq = startSeq;
-            Optional<ByteString> currData = Optional.empty();
+            ByteString currData = null;
             if (startFetchFromSeq > startSeq) {
-                Optional<ByteString> pointed = reader.get(keyGenerator.apply(inboxInstStartKey, startFetchFromSeq));
-                if (pointed.isPresent()) {
+                ByteString pointed = reader.getDirect(keyGenerator.apply(inboxInstStartKey, startFetchFromSeq));
+                if (pointed != null) {
                     currSeq = startFetchFromSeq; // jump to next chunk directly
                     currData = pointed; // use pointed chunk as first record
                 }
             }
-            if (currData.isEmpty()) {
+            if (currData == null) {
                 // find first message chunk
-                currData = reader.get(keyGenerator.apply(inboxInstStartKey, currSeq));
+                currData = reader.getDirect(keyGenerator.apply(inboxInstStartKey, currSeq));
                 // the currSeq may not reflect the latest seq of the first message when query is
                 // non-linearized
                 // it may point to the message was committed.
-                while (currData.isEmpty() && currSeq < nextSeq) {
+                while (currData == null && currSeq < nextSeq) {
                     currSeq++;
-                    currData = reader.get(keyGenerator.apply(inboxInstStartKey, currSeq));
+                    currData = reader.getDirect(keyGenerator.apply(inboxInstStartKey, currSeq));
                 }
                 // if current record not exists, nothing to scan
-                if (currData.isEmpty()) {
+                if (currData == null) {
                     return;
                 }
             }
             // scan forward from located record
-            while (currData.isPresent() && fetchCount > 0) {
-                List<InboxMessage> messageList = ZeroCopyParser.parse(currData.get(),
+            while (currData != null && fetchCount > 0) {
+                List<InboxMessage> messageList = ZeroCopyParser.parse(currData,
                         InboxMessageList.parser()).getMessageList();
                 long lastSeq = messageList.get(messageList.size() - 1).getSeq();
                 if (lastSeq >= startFetchFromSeq) {
@@ -446,7 +446,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
                     }
                 }
                 currSeq = lastSeq + 1;
-                currData = reader.get(keyGenerator.apply(inboxInstStartKey, currSeq));
+                currData = reader.getDirect(keyGenerator.apply(inboxInstStartKey, currSeq));
             }
         }
     }

@@ -90,6 +90,14 @@ public interface IKVRangeReader extends AutoCloseable {
     Optional<ByteString> get(ByteString key);
 
     /**
+     * Get the value of a key without Optional boxing.
+     *
+     * @param key the key
+     * @return the value of the key, or null if the key does not exist
+     */
+    ByteString getDirect(ByteString key);
+
+    /**
      * Get an iterator for the KVRange sharing same consistent-view.
      *
      * @return the iterator.

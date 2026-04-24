@@ -50,6 +50,8 @@ class RocksDBKVSpaceWriterHelper {
     private final Map<ColumnFamilyHandle, Consumer<Map<ByteString, ByteString>>> afterWriteCallbacks = new HashMap<>();
     private final Map<ColumnFamilyHandle, Map<ByteString, ByteString>> metadataChanges = new HashMap<>();
     private final Set<ISyncContext.IMutator> mutators = new HashSet<>();
+    // Track keys that have already been single-deleted in the current batch to avoid redundant tombstones
+    private final Set<ByteString> deletedKeys = new HashSet<>();
 
     RocksDBKVSpaceWriterHelper(RocksDB db, WriteOptions writeOptions) {
         this(db, writeOptions, null);
@@ -73,7 +75,9 @@ class RocksDBKVSpaceWriterHelper {
 
     void metadata(ColumnFamilyHandle cfHandle, ByteString metaKey, ByteString metaValue) throws RocksDBException {
         byte[] key = toMetaKey(metaKey);
-        batch.singleDelete(cfHandle, key);
+        if (deletedKeys.add(metaKey)) {
+            batch.singleDelete(cfHandle, key);
+        }
         batch.put(cfHandle, key, metaValue.toByteArray());
         metadataChanges.computeIfPresent(cfHandle, (k, v) -> {
             v.put(metaKey, metaValue);
@@ -88,7 +92,9 @@ class RocksDBKVSpaceWriterHelper {
 
     void put(ColumnFamilyHandle cfHandle, ByteString key, ByteString value) throws RocksDBException {
         byte[] dataKey = toDataKey(key);
-        batch.singleDelete(cfHandle, dataKey);
+        if (deletedKeys.add(key)) {
+            batch.singleDelete(cfHandle, dataKey);
+        }
         batch.put(cfHandle, dataKey, value.toByteArray());
     }
 
@@ -112,6 +118,7 @@ class RocksDBKVSpaceWriterHelper {
             if (batch.count() > 0) {
                 writeInternal();
                 batch.clear();
+                deletedKeys.clear();
             }
         } catch (Throwable e) {
             throw new KVEngineException("Range write error", e);
@@ -124,6 +131,7 @@ class RocksDBKVSpaceWriterHelper {
                 if (batch.count() > 0) {
                     writeInternal();
                     batch.clear();
+                    deletedKeys.clear();
                 }
             } catch (Throwable e) {
                 throw new KVEngineException("Range write error", e);

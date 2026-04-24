@@ -513,38 +513,62 @@ class DistWorkerCoProc implements IKVRangeCoProc {
         if (distPackList.isEmpty()) {
             return CompletableFuture.completedFuture(BatchDistReply.newBuilder().setReqId(request.getReqId()).build());
         }
-        List<CompletableFuture<Void>> distFutures = new ArrayList<>();
-        Map<String, Map<String, AtomicInteger>> tenantTopicFanOuts = new HashMap<>();
+
+        // Collect all deliver tasks upfront to avoid per-topic AtomicInteger and lambda allocation
+        List<DistTask> tasks = new ArrayList<>();
         for (DistPack distPack : distPackList) {
             String tenantId = distPack.getTenantId();
-            Map<String, AtomicInteger> topicFanouts = tenantTopicFanOuts.computeIfAbsent(tenantId,
-                    (k) -> new ConcurrentHashMap<>());
             ByteString tenantStartKey = tenantBeginKey(tenantId);
             Boundary tenantBoundary = intersect(toBoundary(tenantStartKey, upperBound(tenantStartKey)), boundary);
             if (isNULLRange(tenantBoundary)) {
                 continue;
             }
             for (TopicMessagePack topicMsgPack : distPack.getMsgPackList()) {
-                String topic = topicMsgPack.getTopic();
-                AtomicInteger fanout = topicFanouts.computeIfAbsent(topic, k -> new AtomicInteger());
-                distFutures.add(routeCache.get(tenantId, topic)
-                        .thenAccept(routes -> {
-                            deliverExecutorGroup.submit(tenantId, routes, topicMsgPack);
-                            fanout.addAndGet(routes.size());
-                        }));
+                CompletableFuture<Set<Matching>> routesFuture = routeCache.get(tenantId, topicMsgPack.getTopic());
+                tasks.add(new DistTask(tenantId, topicMsgPack, routesFuture));
             }
         }
-        return CompletableFuture.allOf(distFutures.toArray(new CompletableFuture[distFutures.size()]))
+
+        if (tasks.isEmpty()) {
+            return CompletableFuture.completedFuture(BatchDistReply.newBuilder().setReqId(request.getReqId()).build());
+        }
+
+        CompletableFuture<?>[] futures = new CompletableFuture[tasks.size()];
+        for (int i = 0; i < tasks.size(); i++) {
+            futures[i] = tasks.get(i).routesFuture;
+        }
+
+        return CompletableFuture.allOf(futures)
                 .thenApply(v -> {
-                    // tenantId -> topic -> fanOut
+                    // Batch submit and aggregate fanout in a single thread (no atomic ops needed)
+                    Map<String, Map<String, Integer>> tenantTopicFanOuts = new HashMap<>();
+                    for (DistTask task : tasks) {
+                        Set<Matching> routes = task.routesFuture.join();
+                        deliverExecutorGroup.submit(task.tenantId, routes, task.msgPack);
+                        tenantTopicFanOuts
+                                .computeIfAbsent(task.tenantId, k -> new HashMap<>())
+                                .merge(task.msgPack.getTopic(), routes.size(), Integer::sum);
+                    }
                     BatchDistReply.Builder replyBuilder = BatchDistReply.newBuilder().setReqId(request.getReqId());
                     tenantTopicFanOuts.forEach((k, f) -> {
                         TopicFanout.Builder fanoutBuilder = TopicFanout.newBuilder();
-                        f.forEach((topic, count) -> fanoutBuilder.putFanout(topic, count.get()));
+                        f.forEach((topic, count) -> fanoutBuilder.putFanout(topic, count));
                         replyBuilder.putResult(k, fanoutBuilder.build());
                     });
                     return replyBuilder.build();
                 });
+    }
+
+    private static final class DistTask {
+        final String tenantId;
+        final TopicMessagePack msgPack;
+        final CompletableFuture<Set<Matching>> routesFuture;
+
+        DistTask(String tenantId, TopicMessagePack msgPack, CompletableFuture<Set<Matching>> routesFuture) {
+            this.tenantId = tenantId;
+            this.msgPack = msgPack;
+            this.routesFuture = routesFuture;
+        }
     }
 
     private CompletableFuture<GCReply> gc(GCRequest request, IKVRangeReader reader) {

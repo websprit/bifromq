@@ -47,8 +47,8 @@ abstract class AbstractInMemKVSpaceReader extends AbstractKVSpaceReader {
     }
 
     @Override
-    protected Optional<ByteString> doGet(ByteString key) {
-        return Optional.ofNullable(rangeData().get(key));
+    protected ByteString doGet(ByteString key) {
+        return rangeData().get(key);
     }
 
 }

@@ -27,11 +27,13 @@ import static org.apache.bifromq.deliverer.DeliveryCallResult.OK;
 import static org.apache.bifromq.plugin.subbroker.TypeUtil.toMap;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
@@ -55,7 +57,7 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
     private final IDeliverer deliverer;
     private final DelivererKey batcherKey;
     private Queue<ICallTask<DeliveryCall, DeliveryCallResult, DelivererKey>> tasks = new ArrayDeque<>(128);
-    private Map<String, Map<TopicMessagePackHolder, Set<MatchInfo>>> batch = new HashMap<>(128);
+    private Map<String, Map<TopicMessagePackHolder, List<MatchInfo>>> batch = new HashMap<>(128);
 
     BatchDeliveryCall(IDistClient distClient, IDeliverer deliverer, DelivererKey batcherKey) {
         this.distClient = distClient;
@@ -66,16 +68,26 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
     @Override
     public void reset(boolean abort) {
         if (abort) {
-            tasks = new ArrayDeque<>(128);
-            batch = new HashMap<>(128);
+            tasks.clear();
+            batch.clear();
         }
     }
 
     @Override
     public void add(ICallTask<DeliveryCall, DeliveryCallResult, DelivererKey> callTask) {
-        batch.computeIfAbsent(callTask.call().tenantId, k -> new LinkedHashMap<>(128))
-            .computeIfAbsent(callTask.call().messagePackHolder, k -> new HashSet<>())
-            .add(callTask.call().matchInfo);
+        List<MatchInfo> matchInfos = batch.computeIfAbsent(callTask.call().tenantId, k -> new LinkedHashMap<>(128))
+            .computeIfAbsent(callTask.call().messagePackHolder, k -> new ArrayList<>(4));
+        MatchInfo matchInfo = callTask.call().matchInfo;
+        boolean exists = false;
+        for (int i = 0, size = matchInfos.size(); i < size; i++) {
+            if (matchInfos.get(i).equals(matchInfo)) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            matchInfos.add(matchInfo);
+        }
         tasks.add(callTask);
     }
 
@@ -85,13 +97,13 @@ class BatchDeliveryCall implements IBatchCall<DeliveryCall, DeliveryCallResult, 
     }
 
     private CompletableFuture<Void> execute(Queue<ICallTask<DeliveryCall, DeliveryCallResult, DelivererKey>> tasks,
-                                            Map<String, Map<TopicMessagePackHolder, Set<MatchInfo>>> batch) {
+                                            Map<String, Map<TopicMessagePackHolder, List<MatchInfo>>> batch) {
         DeliveryRequest.Builder requestBuilder = DeliveryRequest.newBuilder();
-        Iterator<Map.Entry<String, Map<TopicMessagePackHolder, Set<MatchInfo>>>> itr = batch.entrySet().iterator();
+        Iterator<Map.Entry<String, Map<TopicMessagePackHolder, List<MatchInfo>>>> itr = batch.entrySet().iterator();
         while (itr.hasNext()) {
-            Map.Entry<String, Map<TopicMessagePackHolder, Set<MatchInfo>>> entry = itr.next();
+            Map.Entry<String, Map<TopicMessagePackHolder, List<MatchInfo>>> entry = itr.next();
             String tenantId = entry.getKey();
-            Map<TopicMessagePackHolder, Set<MatchInfo>> pack = entry.getValue();
+            Map<TopicMessagePackHolder, List<MatchInfo>> pack = entry.getValue();
             DeliveryPackage.Builder packageBuilder = DeliveryPackage.newBuilder();
             pack.forEach((msgPackWrapper, matchInfos) -> {
                 DeliveryPack.Builder packBuilder = DeliveryPack.newBuilder().setMessagePack(msgPackWrapper.messagePack);

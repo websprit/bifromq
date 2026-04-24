@@ -83,6 +83,14 @@ class LoadRecordableKVReader implements IKVRangeRefreshableReader {
     }
 
     @Override
+    public ByteString getDirect(ByteString key) {
+        long start = System.nanoTime();
+        ByteString result = delegate.getDirect(key);
+        recorder.record(key, System.nanoTime() - start);
+        return result;
+    }
+
+    @Override
     public IKVIterator iterator() {
         return new LoadRecordableKVIterator(delegate.iterator(), recorder);
     }

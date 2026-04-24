@@ -298,6 +298,11 @@ public class LogEntryIteratorTest {
             }
 
             @Override
+            public ByteString getDirect(ByteString key) {
+                return store.get(key);
+            }
+
+            @Override
             public IKVSpaceIterator newIterator() {
                 return new IteratorView(store);
             }

@@ -147,7 +147,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            MAVEN_OPTS=${{ inputs.maven_opts || '-Pbuild-release' }}
+            MAVEN_CLI_OPTS=${{ inputs.maven_opts || '-Pbuild-release' }}
 
       # -----------------------------------------------------------------------
       # 7. Generate artifact attestation (provenance)

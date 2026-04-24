@@ -405,6 +405,11 @@ public class TenantsStatsTest {
         }
 
         @Override
+        public ByteString getDirect(ByteString key) {
+            return null;
+        }
+
+        @Override
         public IKVIterator iterator() {
             return new FakeIterator(entries);
         }
