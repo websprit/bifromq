@@ -390,7 +390,7 @@ public static void sizeOf(MqttMessage msg, MutableSizeResult r) {
 
 ### [P1-4] BatchTimeoutWheel：避免 O(N) 全局扫描
 
-- [ ] **勾兑确认人**: ___________
+- [x] **勾兑确认人**: Claude
 
 **目标文件**:
 - `base-scheduler/src/main/java/org/apache/bifromq/basescheduler/Batcher.java:328-348`
@@ -444,7 +444,7 @@ static {
 
 ### [P1-5] InboxFetchPipeline：消除 synchronized send 串行化
 
-- [ ] **勾兑确认人**: ___________
+- [x] **勾兑确认人**: Claude
 
 **目标文件**:
 - `bifromq-inbox-server/src/main/java/org/apache/bifromq/inbox/server/InboxFetchPipeline.java:124`
@@ -496,7 +496,7 @@ private void flush() {
 
 ### [P1-6] RocksDB WriteBatch byte[] 拷贝消除
 
-- [ ] **勾兑确认人**: ___________
+- [ ] **勾兑确认人**: ___________ **（不可行，已验证）**
 
 **目标文件**:
 - `base-kv/base-kv-local-engine-rocksdb/src/main/java/org/apache/bifromq/basekv/localengine/rocksdb/RocksDBKVSpaceWriterHelper.java:77,86,91`
@@ -505,24 +505,18 @@ private void flush() {
 - `ByteString.toByteArray()` 防御性拷贝
 - 大 value 时内存占用翻倍
 
-**实施修改**:
+**实施修改（已尝试并回滚）**:
 
-1. 使用 `WriteBatch.put(ByteBuffer, ByteBuffer)` 重载（RocksDB JNI 较新版本支持）
-2. 或 `UnsafeByteOperations` 零拷贝 wrap（如可用）
+1. 使用 `WriteBatch.put(ByteBuffer, ByteBuffer)` → **失败**
+2. RocksDB JNI `AbstractWriteBatch.put(ByteBuffer, ByteBuffer)` 内部断言 `assert key.isDirect() && value.isDirect()`，仅接受 **Direct ByteBuffer**
+3. Protobuf `ByteString.asReadOnlyByteBuffer()` 返回 Heap ByteBuffer，无法满足要求
+4. 若先拷贝到 Direct ByteBuffer，则开销大于 `toByteArray()` 的收益
 
-```java
-// === 修改前 ===
-batch.put(cfHandle, key.toByteArray(), value.toByteArray());
-
-// === 修改后（需确认 rocksdbjni 版本 >= 7.0 支持 ByteBuffer put）===
-ByteBuffer keyBB = key.asReadOnlyByteBuffer();
-ByteBuffer valBB = value.asReadOnlyByteBuffer();
-batch.put(cfHandle, keyBB, valBB);
-```
+**结论**: 在当前 RocksDB JNI 版本下不可行。如需实现，需修改 RocksDB JNI 侧添加 Heap ByteBuffer 支持。
 
 **预期收益**: 中-高（大 value 场景减少内存拷贝）
 **改动量**: 极小（~5 行）
-**风险**: 低，需确认 rocksdbjni API 版本
+**风险**: 低，但受限于 JNI API
 
 ---
 
