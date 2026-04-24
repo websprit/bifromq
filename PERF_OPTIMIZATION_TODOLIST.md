@@ -249,7 +249,7 @@ public void insert(int batchId, ByteString key, ByteString value) {
 
 ### [P1-1] NativeKVBatchEncoder：消除中间 byte[] + ByteBuffer 分配
 
-- [ ] **勾兑确认人**: ___________
+- [x] **勾兑确认人**: Claude
 
 **目标文件**:
 - `bifromq-native-binding/src/main/java/org/apache/bifromq/nativebinding/kv/NativeKVBatchEncoder.java:109-220`
@@ -285,7 +285,7 @@ ByteBuffer inputBB = inputSeg.asByteBuffer().order(ByteOrder.LITTLE_ENDIAN);
 
 ### [P1-2] NativeTopicTrie：消除每层级 UTF-8 byte[] 分配
 
-- [ ] **勾兑确认人**: ___________
+- [x] **勾兑确认人**: Claude
 
 **目标文件**:
 - `bifromq-native-binding/src/main/java/org/apache/bifromq/nativebinding/topic/NativeTopicTrie.java:216`
@@ -341,7 +341,7 @@ void allocateLevels(String[] levels) {
 
 ### [P1-3] MQTT5MessageSizer：消除每条消息的临时 record 分配
 
-- [ ] **勾兑确认人**: ___________
+- [x] **勾兑确认人**: Claude
 
 **目标文件**:
 - `bifromq-mqtt/bifromq-mqtt-server/src/main/java/org/apache/bifromq/mqtt/server/util/MQTT5MessageSizer.java`
