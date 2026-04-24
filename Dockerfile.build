@@ -78,7 +78,7 @@ RUN cd /build/bifromq-native \
 # =============================================================================
 # Stage 2: Java Build
 # =============================================================================
-FROM maven:4.0.0-rc-5-eclipse-temurin-25-noble AS java-builder
+FROM maven:4.0.0-rc-5-eclipse-temurin-25 AS java-builder
 
 WORKDIR /build
 
