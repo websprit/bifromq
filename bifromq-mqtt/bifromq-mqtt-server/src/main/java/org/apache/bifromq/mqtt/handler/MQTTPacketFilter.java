@@ -43,7 +43,6 @@ import io.netty.handler.codec.mqtt.MqttMessageType;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The packet filter is a duplex handler, MUST be configured after MqttEncoder and before MqttDecoder
@@ -73,25 +72,24 @@ public class MQTTPacketFilter extends ChannelOutboundHandlerAdapter {
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
         assert msg instanceof MqttMessage;
         MqttMessage mqttMessage = (MqttMessage) msg;
-        IMQTTMessageSizer.MqttMessageSize messageSize = sizer.sizeOf(mqttMessage);
-        AtomicInteger encodedBytes = new AtomicInteger(messageSize.encodedBytes());
-        if (encodedBytes.get() <= maxPacketSize) {
-            promise.addListener(logMetric(mqttMessage, encodedBytes.get()));
+        int encodedBytes = sizer.encodedBytesOf(mqttMessage);
+        if (encodedBytes <= maxPacketSize) {
+            promise.addListener(logMetric(mqttMessage, encodedBytes));
             super.write(ctx, msg, promise);
             return;
         }
         if (enableTrim && isTrimable(mqttMessage)) {
-            encodedBytes.set(messageSize.encodedBytes(true, false));
-            if (encodedBytes.get() <= maxPacketSize) {
+            encodedBytes = sizer.encodedBytesOf(mqttMessage, true, false);
+            if (encodedBytes <= maxPacketSize) {
                 // trim reason string
-                promise.addListener(logMetric(mqttMessage, encodedBytes.get()));
+                promise.addListener(logMetric(mqttMessage, encodedBytes));
                 super.write(ctx, trim(mqttMessage, true, false), promise);
                 return;
             }
-            encodedBytes.set(messageSize.encodedBytes(false, false));
-            if (encodedBytes.get() <= maxPacketSize) {
+            encodedBytes = sizer.encodedBytesOf(mqttMessage, false, false);
+            if (encodedBytes <= maxPacketSize) {
                 // trim reason string and user properties
-                promise.addListener(logMetric(mqttMessage, encodedBytes.get()));
+                promise.addListener(logMetric(mqttMessage, encodedBytes));
                 super.write(ctx, trim(mqttMessage, true, true), promise);
                 return;
             }

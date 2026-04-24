@@ -26,6 +26,11 @@ import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -205,19 +210,36 @@ public class NativeTopicTrie implements AutoCloseable {
         }
     }
 
+    private static final ThreadLocal<CharsetEncoder> UTF8_ENCODER = ThreadLocal.withInitial(() ->
+        StandardCharsets.UTF_8.newEncoder()
+            .onMalformedInput(CodingErrorAction.REPLACE)
+            .onUnmappableCharacter(CodingErrorAction.REPLACE));
+
     /**
      * Allocate a CLevel array in the given arena from Java string levels.
+     * Uses CharsetEncoder to write UTF-8 bytes directly into native memory,
+     * avoiding per-level byte[] allocation from {@code String.getBytes(UTF_8)}.
      */
     private MemorySegment allocateLevels(Arena arena, List<String> levels) {
         long cLevelSize = C_LEVEL_LAYOUT.byteSize();
         var segment = arena.allocate(C_LEVEL_LAYOUT, levels.size());
+        CharsetEncoder encoder = UTF8_ENCODER.get();
 
         for (int i = 0; i < levels.size(); i++) {
-            byte[] bytes = levels.get(i).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            var strSegment = arena.allocateFrom(ValueLayout.JAVA_BYTE, bytes);
+            String level = levels.get(i);
+            // Max 3 bytes per char in UTF-8; allocate directly in native arena
+            int maxBytes = level.length() * 3;
+            var strSegment = arena.allocate(maxBytes);
+            ByteBuffer buf = strSegment.asByteBuffer();
+            buf.clear();
+            encoder.reset();
+            encoder.encode(CharBuffer.wrap(level), buf, true);
+            encoder.flush(buf);
+            int len = buf.position();
+
             long offset = i * cLevelSize;
             segment.set(ValueLayout.ADDRESS, offset, strSegment);
-            segment.set(ValueLayout.JAVA_INT, offset + ValueLayout.ADDRESS.byteSize(), bytes.length);
+            segment.set(ValueLayout.JAVA_INT, offset + ValueLayout.ADDRESS.byteSize(), len);
         }
 
         return segment;

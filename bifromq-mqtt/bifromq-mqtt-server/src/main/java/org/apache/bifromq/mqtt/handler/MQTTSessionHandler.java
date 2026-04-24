@@ -1004,7 +1004,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         ClientInfo publisher = msg.publisher();
         String topicFilter = msg.topicFilter();
         MqttPublishMessage pubMsg = helper().buildMqttPubMessage(0, msg, false);
-        int msgSize = sizer.sizeOf(pubMsg).encodedBytes();
+        int msgSize = sizer.encodedBytesOf(pubMsg);
         assert ctx.executor().inEventLoop();
         if (!msg.permissionGranted()) {
             eventCollector.report(getLocal(QoS0Dropped.class)
@@ -1155,7 +1155,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         ClientInfo publisher = msg.publisher();
         MqttPublishMessage pubMsg = helper().buildMqttPubMessage(packetId, msg, isDup);
         TopicFilterOption option = msg.option();
-        int msgSize = sizer.sizeOf(pubMsg).encodedBytes();
+        int msgSize = sizer.encodedBytesOf(pubMsg);
         if (!msg.permissionGranted()) {
             reportDropConfirmableMsgEvent(msg, DropReason.NoSubPermission);
             ctx.executor().execute(() -> confirm(packetId, false));

@@ -51,122 +51,122 @@ import lombok.extern.slf4j.Slf4j;
 public class MQTT5MessageSizer implements IMQTTMessageSizer {
     static final IMQTTMessageSizer INSTANCE = new MQTT5MessageSizer();
 
+    // Thread-local mutable result to eliminate per-call MqttMessageSize record allocation
+    private static final ThreadLocal<MutableMqttMessageSize> TL_MESSAGE_SIZE =
+        ThreadLocal.withInitial(MutableMqttMessageSize::new);
+
+    @Override
+    public int encodedBytesOf(MqttMessage message) {
+        return encodedBytesOf(message, true, true);
+    }
+
+    @Override
+    public int encodedBytesOf(MqttMessage message, boolean includeUserProps, boolean includeReasonString) {
+        MutableMqttMessageSize result = TL_MESSAGE_SIZE.get();
+        fillSize(message, result);
+        return result.encodedBytes(includeUserProps, includeReasonString);
+    }
+
     public IMQTTMessageSizer.MqttMessageSize sizeOf(MqttMessage message) {
+        MutableMqttMessageSize result = TL_MESSAGE_SIZE.get();
+        fillSize(message, result);
+        return result;
+    }
+
+    private void fillSize(MqttMessage message, MutableMqttMessageSize result) {
         switch (message.fixedHeader().messageType()) {
             case CONNECT -> {
                 MqttConnectMessage connMsg = ((MqttConnectMessage) message);
-                return new MqttMessageSize(
-                    sizeConnVarHeader(connMsg.variableHeader()),
-                    sizeConnPayload(connMsg)
-                );
+                result.set(sizeConnVarHeader(connMsg.variableHeader()), sizeConnPayload(connMsg));
             }
             case CONNACK -> {
                 MqttConnAckMessage connMsg = ((MqttConnAckMessage) message);
-                return new MqttMessageSize(sizeConnAckVarHeader(connMsg.variableHeader()), 0);
+                result.set(sizeConnAckVarHeader(connMsg.variableHeader()), 0);
             }
             case PUBLISH -> {
                 MqttPublishMessage pubMsg = (MqttPublishMessage) message;
-                return new MqttMessageSize(sizePubVarHeader(pubMsg.variableHeader()), pubMsg.payload().readableBytes());
+                result.set(sizePubVarHeader(pubMsg.variableHeader()), pubMsg.payload().readableBytes());
             }
             case PUBACK -> {
                 if (message.variableHeader() instanceof MqttPubReplyMessageVariableHeader pubReplyVarHeader) {
                     if (pubReplyVarHeader.reasonCode() != MqttPubReplyMessageVariableHeader.REASON_CODE_OK ||
                         !pubReplyVarHeader.properties().isEmpty()) {
-                        MqttVarHeaderBytes varHeaderBytes = sizePubReplyHeader(pubReplyVarHeader);
-                        return new MqttMessageSize(varHeaderBytes, 0);
+                        result.set(sizePubReplyHeader(pubReplyVarHeader), 0);
+                        break;
                     }
                 }
-                //  The Reason Code and Property Length can be omitted if the Reason Code is 0x00 (Success) and there are no Properties. In this case the PUBACK has a Remaining Length of 2. [MQTT5-3.4.2.1]
-                return TWO_BYTES_REMAINING_LENGTH;
-
+                result.set(2, 0, 0, 0);
             }
             case PUBREC -> {
                 if (message.variableHeader() instanceof MqttPubReplyMessageVariableHeader pubReplyVarHeader) {
                     if (pubReplyVarHeader.reasonCode() != MqttPubReplyMessageVariableHeader.REASON_CODE_OK ||
                         !pubReplyVarHeader.properties().isEmpty()) {
-                        MqttVarHeaderBytes varHeaderBytes = sizePubReplyHeader(pubReplyVarHeader);
-                        return new MqttMessageSize(varHeaderBytes, 0);
+                        result.set(sizePubReplyHeader(pubReplyVarHeader), 0);
+                        break;
                     }
                 }
-                // The Reason Code and Property Length can be omitted if the Reason Code is 0x00 (Success) and there are no Properties. In this case the PUBREC has a Remaining Length of 2 [MQTT5-3.5.2.1]
-                return TWO_BYTES_REMAINING_LENGTH;
+                result.set(2, 0, 0, 0);
             }
             case PUBREL -> {
                 if (message.variableHeader() instanceof MqttPubReplyMessageVariableHeader pubReplyVarHeader) {
                     if (pubReplyVarHeader.reasonCode() != MqttPubReplyMessageVariableHeader.REASON_CODE_OK ||
                         !pubReplyVarHeader.properties().isEmpty()) {
-                        MqttVarHeaderBytes varHeaderBytes = sizePubReplyHeader(pubReplyVarHeader);
-                        return new MqttMessageSize(varHeaderBytes, 0);
+                        result.set(sizePubReplyHeader(pubReplyVarHeader), 0);
+                        break;
                     }
                 }
-                // The Reason Code and Property Length can be omitted if the Reason Code is 0x00 (Success) and there are no Properties. In this case the PUBREL has a Remaining Length of 2 [MQTT5-3.6.2.1]
-                return TWO_BYTES_REMAINING_LENGTH;
+                result.set(2, 0, 0, 0);
             }
             case PUBCOMP -> {
                 if (message.variableHeader() instanceof MqttPubReplyMessageVariableHeader pubReplyVarHeader) {
                     if (pubReplyVarHeader.reasonCode() != MqttPubReplyMessageVariableHeader.REASON_CODE_OK ||
                         !pubReplyVarHeader.properties().isEmpty()) {
-                        MqttVarHeaderBytes varHeaderBytes = sizePubReplyHeader(pubReplyVarHeader);
-                        return new MqttMessageSize(varHeaderBytes, 0);
+                        result.set(sizePubReplyHeader(pubReplyVarHeader), 0);
+                        break;
                     }
                 }
-                // The Reason Code and Property Length can be omitted if the Reason Code is 0x00 (Success) and there are no Properties. In this case the PUBCOMP has a Remaining Length of 2 [MQTT5-3.7.2.1]
-                return TWO_BYTES_REMAINING_LENGTH;
+                result.set(2, 0, 0, 0);
             }
             case SUBSCRIBE -> {
                 MqttSubscribeMessage subMsg = (MqttSubscribeMessage) message;
-                return new MqttMessageSize(
-                    sizeIdAndPropsVarHeader(subMsg.idAndPropertiesVariableHeader()),
-                    sizeSubPayload(subMsg.payload())
-                );
+                result.set(sizeIdAndPropsVarHeader(subMsg.idAndPropertiesVariableHeader()),
+                    sizeSubPayload(subMsg.payload()));
             }
             case SUBACK -> {
                 MqttSubAckMessage subAckMsg = (MqttSubAckMessage) message;
-                return new MqttMessageSize(
-                    sizeIdAndPropsVarHeader(subAckMsg.idAndPropertiesVariableHeader()),
-                    sizeSubAckPayload(subAckMsg.payload())
-                );
+                result.set(sizeIdAndPropsVarHeader(subAckMsg.idAndPropertiesVariableHeader()),
+                    sizeSubAckPayload(subAckMsg.payload()));
             }
             case UNSUBSCRIBE -> {
                 MqttUnsubscribeMessage unsubMsg = (MqttUnsubscribeMessage) message;
-                return new MqttMessageSize(
-                    sizeIdAndPropsVarHeader(unsubMsg.idAndPropertiesVariableHeader()),
-                    sizeUnsubPayload(unsubMsg.payload())
-                );
+                result.set(sizeIdAndPropsVarHeader(unsubMsg.idAndPropertiesVariableHeader()),
+                    sizeUnsubPayload(unsubMsg.payload()));
             }
             case UNSUBACK -> {
                 MqttUnsubAckMessage unsubAckMsg = (MqttUnsubAckMessage) message;
-                return new MqttMessageSize(
-                    sizeIdAndPropsVarHeader(unsubAckMsg.idAndPropertiesVariableHeader()),
-                    sizeUnsubAckPayload(unsubAckMsg.payload())
-                );
+                result.set(sizeIdAndPropsVarHeader(unsubAckMsg.idAndPropertiesVariableHeader()),
+                    sizeUnsubAckPayload(unsubAckMsg.payload()));
             }
             case DISCONNECT -> {
                 if (message.variableHeader() == null) {
-                    // The Reason Code and Property Length can be omitted if the Reason Code is 0x00 (Normal disconnecton) and there are no Properties. In this case the DISCONNECT has a Remaining Length of 0 [MQTT5-3.14.2.1]
-                    return ZERO_BYTES_REMAINING_LENGTH;
+                    result.set(0, 0, 0, 0);
                 } else {
-                    MqttVarHeaderBytes varHeaderBytes = sizeReasonCodeAndPropertiesVarHeader(
-                        (MqttReasonCodeAndPropertiesVariableHeader) message.variableHeader());
-                    return new MqttMessageSize(varHeaderBytes, 0);
+                    result.set(sizeReasonCodeAndPropertiesVarHeader(
+                        (MqttReasonCodeAndPropertiesVariableHeader) message.variableHeader()), 0);
                 }
             }
-            case PINGREQ, PINGRESP -> {
-                return ZERO_BYTES_REMAINING_LENGTH;
-            }
+            case PINGREQ, PINGRESP -> result.set(0, 0, 0, 0);
             case AUTH -> {
                 if (message.variableHeader() == null) {
-                    // The Reason Code and Property Length can be omitted if the Reason Code is 0x00 (Success) and there are no Properties. In this case the AUTH has a Remaining Length of 0 [MQTT5-3.15.2.1]
-                    return ZERO_BYTES_REMAINING_LENGTH;
+                    result.set(0, 0, 0, 0);
                 } else {
-                    MqttVarHeaderBytes varHeaderBytes = sizeReasonCodeAndPropertiesVarHeader(
-                        (MqttReasonCodeAndPropertiesVariableHeader) message.variableHeader());
-                    return new MqttMessageSize(varHeaderBytes, 0);
+                    result.set(sizeReasonCodeAndPropertiesVarHeader(
+                        (MqttReasonCodeAndPropertiesVariableHeader) message.variableHeader()), 0);
                 }
             }
             default -> {
                 log.error("Unknown message type for sizing: {}", message.fixedHeader().messageType());
-                return ZERO_BYTES_REMAINING_LENGTH;
+                result.set(0, 0, 0, 0);
             }
         }
     }
@@ -534,5 +534,49 @@ public class MQTT5MessageSizer implements IMQTTMessageSizer {
     }
 
     private record MqttPropertiesBytes(int minBytes, int reasonStringBytes, int userPropsBytes) {
+    }
+
+    /**
+     * Mutable implementation of {@link IMQTTMessageSizer.MqttMessageSize} used via
+     * ThreadLocal to eliminate per-call record allocation. Not thread-safe by design;
+     * each thread gets its own instance from {@link #TL_MESSAGE_SIZE}.
+     */
+    private static final class MutableMqttMessageSize implements IMQTTMessageSizer.MqttMessageSize {
+        int minBytes;
+        int reasonStringBytes;
+        int userPropsBytes;
+        int payloadBytes;
+
+        void set(MqttVarHeaderBytes varHeaderBytes, int payloadBytes) {
+            this.minBytes = varHeaderBytes.minBytes;
+            this.reasonStringBytes = varHeaderBytes.reasonStringBytes;
+            this.userPropsBytes = varHeaderBytes.userPropsBytes;
+            this.payloadBytes = payloadBytes;
+        }
+
+        void set(int minBytes, int reasonStringBytes, int userPropsBytes, int payloadBytes) {
+            this.minBytes = minBytes;
+            this.reasonStringBytes = reasonStringBytes;
+            this.userPropsBytes = userPropsBytes;
+            this.payloadBytes = payloadBytes;
+        }
+
+        @Override
+        public int encodedBytes() {
+            return encodedBytes(true, true);
+        }
+
+        @Override
+        public int encodedBytes(boolean includeUserProps, boolean includeReasonString) {
+            int totalVarHeaderBytes = minBytes;
+            if (includeUserProps) {
+                totalVarHeaderBytes += userPropsBytes;
+            }
+            if (includeReasonString) {
+                totalVarHeaderBytes += reasonStringBytes;
+            }
+            return 1 + IMQTTMessageSizer.varIntBytes(totalVarHeaderBytes + payloadBytes) + totalVarHeaderBytes +
+                payloadBytes;
+        }
     }
 }

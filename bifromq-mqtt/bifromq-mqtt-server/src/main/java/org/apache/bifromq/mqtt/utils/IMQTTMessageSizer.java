@@ -89,6 +89,23 @@ public interface IMQTTMessageSizer {
 
     MqttMessageSize sizeOf(MqttMessage message);
 
+    /**
+     * Returns the encoded byte size of the given message without allocating
+     * an intermediate {@link MqttMessageSize} object. Implementations may
+     * use a thread-local mutable result to avoid per-call allocation.
+     */
+    default int encodedBytesOf(MqttMessage message) {
+        return sizeOf(message).encodedBytes();
+    }
+
+    /**
+     * Same as {@link #encodedBytesOf(MqttMessage)} but allows excluding
+     * user properties and/or reason strings from the size calculation.
+     */
+    default int encodedBytesOf(MqttMessage message, boolean includeUserProps, boolean includeReasonString) {
+        return sizeOf(message).encodedBytes(includeUserProps, includeReasonString);
+    }
+
     int lastWillSize(MqttConnectMessage message);
 
     /**

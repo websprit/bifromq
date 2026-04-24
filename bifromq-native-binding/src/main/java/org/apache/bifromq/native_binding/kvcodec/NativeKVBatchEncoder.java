@@ -104,22 +104,19 @@ public final class NativeKVBatchEncoder {
      */
     public static List<byte[]> batchEncodeNormalRouteKeys(
             byte[] tenantId, byte[] filterLevelsData, List<byte[]> receivers) {
-        // Build flat input buffer: [u32:len][bytes]...
+        // Build flat input buffer directly into native arena memory
         int inputSize = receivers.stream().mapToInt(r -> 4 + r.length).sum();
-        byte[] inputBuf = new byte[inputSize];
-        ByteBuffer bb = ByteBuffer.wrap(inputBuf).order(ByteOrder.LITTLE_ENDIAN);
-        for (byte[] recv : receivers) {
-            bb.putInt(recv.length);
-            bb.put(recv);
-        }
-
         int cap = inputSize + receivers.size() * (tenantId.length + filterLevelsData.length + 16);
         try {
             var ctx = NativeArenaPool.get();
             var tenantSeg = ctx.allocateFrom(tenantId);
             var filterSeg = ctx.allocateFrom(filterLevelsData);
             var inputSeg = ctx.input(inputSize);
-            inputSeg.copyFrom(MemorySegment.ofArray(inputBuf));
+            ByteBuffer bb = inputSeg.asByteBuffer().order(ByteOrder.LITTLE_ENDIAN);
+            for (byte[] recv : receivers) {
+                bb.putInt(recv.length);
+                bb.put(recv);
+            }
             var outBuf = ctx.output(cap);
 
             int written = (int) BATCH_ENCODE_NORMAL.invokeExact(
@@ -158,24 +155,21 @@ public final class NativeKVBatchEncoder {
     public static List<byte[]> batchEncodeGroupRouteKeys(
             byte[] tenantId, byte[] filterLevelsData,
             List<byte[]> groups, List<Boolean> ordered) {
-        // Build flat input buffer: [u32:len][bytes][u8:ordered]...
+        // Build flat input buffer directly into native arena memory: [u32:len][bytes][u8:ordered]...
         int inputSize = groups.stream().mapToInt(g -> 4 + g.length + 1).sum();
-        byte[] inputBuf = new byte[inputSize];
-        ByteBuffer bb = ByteBuffer.wrap(inputBuf).order(ByteOrder.LITTLE_ENDIAN);
-        for (int i = 0; i < groups.size(); i++) {
-            byte[] grp = groups.get(i);
-            bb.putInt(grp.length);
-            bb.put(grp);
-            bb.put(ordered.get(i) ? (byte) 1 : (byte) 0);
-        }
-
         int cap = inputSize + groups.size() * (tenantId.length + filterLevelsData.length + 16);
         try {
             var ctx = NativeArenaPool.get();
             var tenantSeg = ctx.allocateFrom(tenantId);
             var filterSeg = ctx.allocateFrom(filterLevelsData);
             var inputSeg = ctx.input(inputSize);
-            inputSeg.copyFrom(MemorySegment.ofArray(inputBuf));
+            ByteBuffer bb = inputSeg.asByteBuffer().order(ByteOrder.LITTLE_ENDIAN);
+            for (int i = 0; i < groups.size(); i++) {
+                byte[] grp = groups.get(i);
+                bb.putInt(grp.length);
+                bb.put(grp);
+                bb.put(ordered.get(i) ? (byte) 1 : (byte) 0);
+            }
             var outBuf = ctx.output(cap);
 
             int written = (int) BATCH_ENCODE_GROUP.invokeExact(
@@ -216,24 +210,21 @@ public final class NativeKVBatchEncoder {
      * @return list of decoded route key components
      */
     public static List<DecodedKey> batchDecodeRouteKeys(List<byte[]> keys) {
-        // Build flat input buffer
+        // Build flat input buffer directly into native arena memory
         int inputSize = keys.stream().mapToInt(k -> 4 + k.length).sum();
-        byte[] inputBuf = new byte[inputSize];
-        ByteBuffer bb = ByteBuffer.wrap(inputBuf).order(ByteOrder.LITTLE_ENDIAN);
-        for (byte[] key : keys) {
-            bb.putInt(key.length);
-            bb.put(key);
-        }
 
         // DecodedRouteKey struct is 20 bytes (5 x u32: tenant_offset, tenant_len, flag(u8+padding), payload_offset, payload_len)
-        // Actually it's: u32 + u32 + u8 + u32 + u32 = 17 bytes, but with C alignment it's 20 bytes
         int structSize = 20;
         int outCap = keys.size();
 
         try {
             var ctx = NativeArenaPool.get();
             var inputSeg = ctx.input(inputSize);
-            inputSeg.copyFrom(MemorySegment.ofArray(inputBuf));
+            ByteBuffer bb = inputSeg.asByteBuffer().order(ByteOrder.LITTLE_ENDIAN);
+            for (byte[] key : keys) {
+                bb.putInt(key.length);
+                bb.put(key);
+            }
             var outSeg = ctx.output((long) structSize * outCap);
 
             int count = (int) BATCH_DECODE.invokeExact(
