@@ -31,9 +31,9 @@
 
 **实施修改**:
 
-1. 引入 fastutil `Int2IntOpenHashMap`（SubInfo 已有 hashCode/equals，可用 ID）
-2. 用 thread-local `Int2IntOpenHashMap` 做本地聚合，锁外合并
-3. `deliverExecutorGroup.submit()` 改为批量 `invokeAll()` 或聚合后单任务投递
+1. 引入 `DistTask` inner class 聚合 topic/msgPack/routesFuture，消除 per-topic 的 `ConcurrentHashMap<SubInfo, AtomicInteger>` 分配
+2. 提前收集所有路由查询 Future，用 `CompletableFuture.allOf()` 并行等待
+3. 路由全部就绪后，单线程批量提交 `deliverExecutorGroup.submit()`
 
 ```java
 // === 修改前（DistWorkerCoProc.java:511-548 示意）===
@@ -52,38 +52,41 @@ for (Map.Entry<TopicMessage, Map<SubInfo, Integer>> e : scopedFanout.entrySet())
 }
 
 // === 修改后 ===
-// ThreadLocal 复用 map，避免每次分配
-private static final ThreadLocal<Int2IntOpenHashMap> LOCAL_FANOUT_MAP =
-    ThreadLocal.withInitial(Int2IntOpenHashMap::new);
+// DistTask 聚合路由查询，消除 AtomicInteger 和 lambda closure
+private static final class DistTask {
+    final String tenantId;
+    final TopicMessagePack msgPack;
+    final CompletableFuture<Set<Matching>> routesFuture;
+    // ...
+}
 
 // batchDist 方法内
-Int2IntOpenHashMap localFanout = LOCAL_FANOUT_MAP.get();
-localFanout.clear();
-
-// 第一阶段：单线程聚合（无锁）
-for (...) {
-    for (SubInfo sub : matchResult.getSubInfoList()) {
-        int subId = sub.hashCode(); // 或用内部 ID
-        localFanout.put(subId, localFanout.getOrDefault(subId, 0) + 1);
+List<DistTask> tasks = new ArrayList<>();
+for (DistPack distPack : distPackList) {
+    for (TopicMessagePack topicMsgPack : distPack.getMsgPackList()) {
+        CompletableFuture<Set<Matching>> routesFuture = routeCache.get(tenantId, topicMsgPack.getTopic());
+        tasks.add(new DistTask(tenantId, topicMsgPack, routesFuture));
     }
 }
-
-// 第二阶段：批量提交（减少任务数量）
-List<Callable<Void>> tasks = new ArrayList<>(localFanout.size());
-localFanout.forEach((subId, count) -> {
-    SubInfo sub = subInfoById.get(subId); // 需要建立 ID->SubInfo 映射
-    tasks.add(() -> { deliver(topicMsg, sub, count); return null; });
+// 并行等待所有路由查询完成
+CompletableFuture.allOf(futures).thenApply(v -> {
+    // 单线程批量提交（无锁聚合）
+    Map<String, Map<String, Integer>> tenantTopicFanOuts = new HashMap<>();
+    for (DistTask task : tasks) {
+        Set<Matching> routes = task.routesFuture.join();
+        deliverExecutorGroup.submit(task.tenantId, routes, task.msgPack);
+        tenantTopicFanOuts.computeIfAbsent(task.tenantId, k -> new HashMap<>())
+            .merge(task.msgPack.getTopic(), routes.size(), Integer::sum);
+    }
+    return replyBuilder.build();
 });
-if (!tasks.isEmpty()) {
-    deliverExecutorGroup.invokeAll(tasks); // 或分批提交
-}
 ```
 
-**新增依赖**: `it.unimi.dsi:fastutil:8.5.12`（根 pom.xml dependencyManagement 中已定义，直接引用即可）
+**新增依赖**: 无（使用标准 JDK 集合）
 
-**预期收益**: 高（消息分发是核心路径，减少对象分配 50%+）
-**改动量**: 中（~80 行）
-**风险**: 中，需确保 SubInfo ID 映射唯一性
+**预期收益**: 高（消息分发是核心路径，消除 AtomicInteger 和 lambda 分配）
+**改动量**: 中（~50 行）
+**风险**: 低
 
 ---
 
@@ -101,49 +104,45 @@ if (!tasks.isEmpty()) {
 
 **实施修改**:
 
-1. 使用 fastutil `Object2ObjectOpenHashMap` 替换嵌套 `HashMap`
-2. abort 路径改为 `clear()` 而非重建
-3. 用 `ArrayList<MatchInfo>` + 线性扫描替代 `HashSet`
+1. `reset(boolean abort)` 改为 `clear()` 复用容器，而非 `new`
+2. 用 `ArrayList<MatchInfo>` + 线性扫描替代 `HashSet` 去重（MatchInfo 数量 < 10，O(n) 优于哈希计算）
 
 ```java
 // === 修改前（reset 方法）===
 void reset(boolean abort) {
     if (abort) {
-        batches = new HashMap<>(); // 全量重建
+        tasks = new ArrayDeque<>(); // 全量重建
+        batch = new HashMap<>();
     }
 }
 
 // === 修改后 ===
-// 使用扁平结构 + ArrayList 替代嵌套 HashSet
-private static final class BatchEntry {
-    final String tenantId;
-    final List<MatchInfo> matchInfos = new ArrayList<>(4); // 预估 < 10
-    // ... 其他字段
-}
-
-private final Object2ObjectOpenHashMap<String, BatchEntry> batchMap =
-    new Object2ObjectOpenHashMap<>();
+private final Queue<...> tasks = new ArrayDeque<>(128);
+private final Map<String, Map<TopicMessagePackHolder, List<MatchInfo>>> batch = new HashMap<>(128);
 
 void reset(boolean abort) {
     if (abort) {
-        batchMap.clear(); // 复用，不重建
-        // 如需 shrink，可定期（每 N 次）重建一次
-    } else {
-        batchMap.clear();
+        tasks.clear(); // 复用，不重建
+        batch.clear();
     }
 }
 
 // add 方法用线性扫描去重（数据量小，常数优于 HashSet）
-void add(MatchInfo matchInfo) {
-    BatchEntry entry = batchMap.computeIfAbsent(matchInfo.tenantId, BatchEntry::new);
-    List<MatchInfo> list = entry.matchInfos;
+void add(ICallTask<...> callTask) {
+    List<MatchInfo> matchInfos = batch
+        .computeIfAbsent(callTask.call().tenantId, k -> new LinkedHashMap<>(128))
+        .computeIfAbsent(callTask.call().messagePackHolder, k -> new ArrayList<>(4));
+    MatchInfo matchInfo = callTask.call().matchInfo;
     boolean exists = false;
-    for (int i = 0, size = list.size(); i < size; i++) {
-        if (list.get(i).equals(matchInfo)) { exists = true; break; }
+    for (int i = 0, size = matchInfos.size(); i < size; i++) {
+        if (matchInfos.get(i).equals(matchInfo)) { exists = true; break; }
     }
-    if (!exists) list.add(matchInfo);
+    if (!exists) matchInfos.add(matchInfo);
+    tasks.add(callTask);
 }
 ```
+
+**新增依赖**: 无
 
 **预期收益**: 高（每秒数万批次，消除嵌套 map 重建）
 **改动量**: 中（~60 行）
@@ -220,15 +219,14 @@ public void metadata(int batchId, ByteString key, ByteString value) {
 }
 
 // === 修改后 ===
-// 新增 dirtyKeys 追踪（在 batch 级别）
-private final Set<ByteString> dirtyKeys = Collections.newSetFromMap(new IdentityHashMap<>());
+// 新增 deletedKeys 追踪（在 batch 级别）
+// 使用 HashSet 而非 IdentityHashMap，因为 ByteString 值相等的 key 也应去重
+private final Set<ByteString> deletedKeys = new HashSet<>();
 
 public void metadata(int batchId, ByteString key, ByteString value) {
     byte[] keyBytes = key.toByteArray();
-    if (!dirtyKeys.contains(key)) {
-        // 只有第一次写该 key 时才发 tombstone（假设外部保证同 key 不会交叉写）
+    if (deletedKeys.add(key)) { // add() 返回 true 表示首次写入
         batch.singleDelete(cfHandle, keyBytes);
-        dirtyKeys.add(key);
     }
     batch.put(cfHandle, keyBytes, value.toByteArray());
 }
@@ -252,7 +250,7 @@ public void insert(int batchId, ByteString key, ByteString value) {
 - [x] **勾兑确认人**: Claude
 
 **目标文件**:
-- `bifromq-native-binding/src/main/java/org/apache/bifromq/nativebinding/kv/NativeKVBatchEncoder.java:109-220`
+- `bifromq-native-binding/src/main/java/org/apache/bifromq/native_binding/kvcodec/NativeKVBatchEncoder.java:109-220`
 
 **问题**:
 - FlatBuffer 编解码每次新建 `byte[inputSize]` 和 `ByteBuffer.wrap()`
@@ -288,47 +286,37 @@ ByteBuffer inputBB = inputSeg.asByteBuffer().order(ByteOrder.LITTLE_ENDIAN);
 - [x] **勾兑确认人**: Claude
 
 **目标文件**:
-- `bifromq-native-binding/src/main/java/org/apache/bifromq/nativebinding/topic/NativeTopicTrie.java:216`
+- `bifromq-native-binding/src/main/java/org/apache/bifromq/native_binding/topic/NativeTopicTrie.java:216`
 
 **问题**:
 - `String.getBytes(UTF_8)` 为每个 topic level 分配 byte[]
 
 **实施修改**:
 
-1. 常见 topic level 缓存 UTF-8 byte[]（LRU，容量如 1024）
-2. 或用 pooled `byte[]` + `String.getBytes(CharsetEncoder)` 写入预分配 buffer
+1. 引入 `ThreadLocal<CharsetEncoder>` 复用编码器
+2. 直接在 arena 分配的内存上 `asByteBuffer()` 编码，避免中间 byte[] 分配
 
 ```java
-// === 方案 A：ThreadLocal byte[] pool（轻量）===
-private static final ThreadLocal<byte[]> UTF8_BUF = ThreadLocal.withInitial(() -> new byte[256]);
+private static final ThreadLocal<CharsetEncoder> UTF8_ENCODER = ThreadLocal.withInitial(() ->
+    StandardCharsets.UTF_8.newEncoder()
+        .onMalformedInput(CodingErrorAction.REPLACE)
+        .onUnmappableCharacter(CodingErrorAction.REPLACE));
 
-void allocateLevels(String[] levels) {
-    for (String level : levels) {
-        byte[] buf = UTF8_BUF.get();
-        byte[] bytes = level.getBytes(UTF_8); // 仍有一次分配
-        // 无法避免 String.getBytes 内部分配...
-    }
-}
-
-// === 方案 B：CharsetEncoder 写入预分配 ByteBuffer（推荐）===
-private static final ThreadLocal<CharsetEncoder> ENCODER =
-    ThreadLocal.withInitial(() -> StandardCharsets.UTF_8.newEncoder());
-
-private static final ThreadLocal<ByteBuffer> BYTE_BUF =
-    ThreadLocal.withInitial(() -> ByteBuffer.allocate(256));
-
-void allocateLevels(String[] levels) {
-    CharsetEncoder enc = ENCODER.get();
-    ByteBuffer buf = BYTE_BUF.get();
-    for (String level : levels) {
-        buf.clear();
-        enc.reset();
-        enc.encode(CharBuffer.wrap(level), buf, true);
-        enc.flush(buf);
+private MemorySegment allocateLevels(Arena arena, List<String> levels) {
+    CharsetEncoder encoder = UTF8_ENCODER.get();
+    for (int i = 0; i < levels.size(); i++) {
+        String level = levels.get(i);
+        // 直接在 arena native memory 上编码，跳过 byte[] 分配
+        int maxBytes = level.length() * 3;
+        var strSegment = arena.allocate(maxBytes);
+        ByteBuffer buf = strSegment.asByteBuffer();
+        encoder.reset();
+        encoder.encode(CharBuffer.wrap(level), buf, true);
+        encoder.flush(buf);
         int len = buf.position();
-        buf.flip();
-        // 传入 native：buf, 0, len
-        nativeAddLevel(buf, len);
+        // 写入 CLevel 数组
+        segment.set(ValueLayout.ADDRESS, offset, strSegment);
+        segment.set(ValueLayout.JAVA_INT, offset + ADDRESS_SIZE, len);
     }
 }
 ```
@@ -344,7 +332,7 @@ void allocateLevels(String[] levels) {
 - [x] **勾兑确认人**: Claude
 
 **目标文件**:
-- `bifromq-mqtt/bifromq-mqtt-server/src/main/java/org/apache/bifromq/mqtt/server/util/MQTT5MessageSizer.java`
+- `bifromq-mqtt/bifromq-mqtt-server/src/main/java/org/apache/bifromq/mqtt/utils/MQTT5MessageSizer.java`
 
 **问题**:
 - `sizeOf()` 返回 `MqttMessageSize` record
@@ -353,32 +341,36 @@ void allocateLevels(String[] levels) {
 
 **实施修改**:
 
-1. 添加 `sizeOf(MqttMessage msg, MutableSizeResult result)` 重载
-2. 调用侧复用 thread-local `MutableSizeResult`
+1. 在 `IMQTTMessageSizer` 接口添加 `encodedBytesOf()` 默认方法（直接返回 `int`）
+2. `MQTT5MessageSizer` 覆盖该方法，使用 `ThreadLocal<MutableMqttMessageSize>` 替代 record 分配
+3. `sizeOf()` 改为委托 `fillSize()`，填充 mutable 对象后返回
+4. 调用侧（`MQTTPacketFilter`、`MQTTSessionHandler`）改用 `encodedBytesOf()`，消除 record 分配
 
 ```java
-// === 新增 ===
-public static class MutableSizeResult {
-    public int fixedHeaderSize;
-    public int variableHeaderSize;
-    public int payloadSize;
-    public int totalSize() { return fixedHeaderSize + variableHeaderSize + payloadSize; }
+// === IMQTTMessageSizer 接口新增 ===
+default int encodedBytesOf(MqttMessage message) {
+    return sizeOf(message).encodedBytes();
 }
 
-private static final ThreadLocal<MutableSizeResult> TL_RESULT =
-    ThreadLocal.withInitial(MutableSizeResult::new);
-
-// === 修改后入口 ===
-public static int sizeOf(MqttMessage msg) {
-    MutableSizeResult r = TL_RESULT.get();
-    sizeOf(msg, r);
-    return r.totalSize();
+default int encodedBytesOf(MqttMessage message, boolean includeUserProps, boolean includeReasonString) {
+    return sizeOf(message).encodedBytes(includeUserProps, includeReasonString);
 }
 
-public static void sizeOf(MqttMessage msg, MutableSizeResult r) {
-    r.fixedHeaderSize = ...;
-    r.variableHeaderSize = sizeVarHeader(msg, r); // 复用内部字段
-    r.payloadSize = sizePayload(msg);
+// === MQTT5MessageSizer 覆盖 ===
+private static final ThreadLocal<MutableMqttMessageSize> TL_MESSAGE_SIZE =
+    ThreadLocal.withInitial(MutableMqttMessageSize::new);
+
+@Override
+public int encodedBytesOf(MqttMessage message, boolean includeUserProps, boolean includeReasonString) {
+    MutableMqttMessageSize result = TL_MESSAGE_SIZE.get();
+    fillSize(message, result);
+    return result.encodedBytes(includeUserProps, includeReasonString);
+}
+
+// Mutable 替换 Record，同线程复用
+private static final class MutableMqttMessageSize implements IMQTTMessageSizer.MqttMessageSize {
+    int minBytes, reasonStringBytes, userPropsBytes, payloadBytes;
+    // set() + encodedBytes() ...
 }
 ```
 
@@ -738,7 +730,7 @@ SubInfo sub = b.build();
 - [x] **GroupCommitWriteQueue ArrayList 预分配外移（base-kv-local-engine-rocksdb）**: lock 内 `new ArrayList<>(pendingWrites.size())` 改为预分配，减少锁持有时间
 - [x] **MQTTTransientSessionHandler auth cache key（bifromq-mqtt-server）**: 用 `TopicQosKey` record 替代字符串拼接，消除 fanout 场景下的短生命周期字符串分配
 - [x] **RocksDB WAL 批量刷盘（base-kv-local-engine-rocksdb）**: `RocksDBOptionsUtil` 启用 `setWalBytesPerSync(1MB)`，配合 `fsync=false` 减少刷盘频率
-- [x] **Keys.toDataKey/toMetaKey 零拷贝（base-kv-local-engine-rocksdb）**: 避免 `ByteString.concat().toByteArray()` 的防御性拷贝
+- [x] **Keys.toDataKey/toMetaKey 精简分配（base-kv-local-engine-rocksdb）**: `prefix.concat(key).toByteArray()` 改为直接 `new byte[len]` + 手动拷贝，消除中间 `ByteString.concat()` 对象分配
 
 ---
 

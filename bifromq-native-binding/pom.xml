@@ -31,6 +31,12 @@
     <name>BifroMQ Native Binding</name>
     <description>Java FFM bindings for Rust native implementations</description>
 
+    <properties>
+        <!-- java.lang.foreign (FFM API) was finalized in JDK 22.
+             Compiling with --release 25 for JDK 25 compatibility. -->
+        <maven.compiler.release>25</maven.compiler.release>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.bifromq</groupId>

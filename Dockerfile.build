@@ -53,14 +53,14 @@ RUN apt-get update \
     && echo "deb [signed-by=/usr/share/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" > /etc/apt/sources.list.d/adoptium.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        temurin-21-jdk \
+        temurin-25-jdk \
         build-essential \
         make \
         cmake \
         pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-ENV JAVA_HOME=/usr/lib/jvm/temurin-21-jdk-amd64
+ENV JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-amd64
 
 # --- Build RocksDB JNI ---
 # COPY only rocksdb sources first for layer cache (large, slow to compile)
@@ -78,7 +78,7 @@ RUN cd /build/bifromq-native \
 # =============================================================================
 # Stage 2: Java Build
 # =============================================================================
-FROM maven:3.9.6-eclipse-temurin-21 AS java-builder
+FROM maven:3.9.6-eclipse-temurin-25 AS java-builder
 
 WORKDIR /build
 
@@ -135,7 +135,7 @@ RUN ./mvnw clean verify -DskipTests \
 # =============================================================================
 # Stage 3: Runtime
 # =============================================================================
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 
 ENV BIFROMQ_HOME=/bifromq
 
