@@ -130,7 +130,6 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         inflightWeightGauge = Gauge.builder("batcher.inflight.size", inFlightWeight::get)
                 .tags(tags)
                 .register(Metrics.globalRegistry);
-        BatchTimeoutWheel.register(this);
     }
 
     public CompletableFuture<CallResultT> submit(BatcherKeyT batcherKey, CallT request) {
@@ -237,6 +236,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
             inFlightWeight.addAndGet(batchWeight);
             CompletableFuture<Void> future = batchCall.execute();
             pendingTimeouts.offer(new TimeoutEntry(future, System.nanoTime() + maxBurstLatency));
+            BatchTimeoutWheel.onTimeoutAdded(this);
             future.whenComplete((v, e) -> {
                         long execEnd = System.nanoTime();
                         if (e != null) {
@@ -313,6 +313,9 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
                 break;
             }
         }
+        if (pendingTimeouts.isEmpty()) {
+            BatchTimeoutWheel.onTimeoutRemoved(this);
+        }
     }
 
     private static final class TimeoutEntry {
@@ -333,11 +336,13 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
                     t.setDaemon(true);
                     return t;
                 });
-        private static final Set<Batcher<?, ?, ?>> batchers = ConcurrentHashMap.newKeySet();
+        // Only batchers that currently have pending timeouts are scanned,
+        // avoiding O(N) iteration over all batchers every tick.
+        private static final Set<Batcher<?, ?, ?>> activeBatchers = ConcurrentHashMap.newKeySet();
 
         static {
             scheduler.scheduleWithFixedDelay(() -> {
-                for (Batcher<?, ?, ?> batcher : batchers) {
+                for (Batcher<?, ?, ?> batcher : activeBatchers) {
                     try {
                         batcher.expireTimeouts();
                     } catch (Throwable t) {
@@ -347,12 +352,18 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
             }, TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
         }
 
-        static void register(Batcher<?, ?, ?> batcher) {
-            batchers.add(batcher);
+        static void onTimeoutAdded(Batcher<?, ?, ?> batcher) {
+            activeBatchers.add(batcher);
+        }
+
+        static void onTimeoutRemoved(Batcher<?, ?, ?> batcher) {
+            if (batcher.pendingTimeouts.isEmpty()) {
+                activeBatchers.remove(batcher);
+            }
         }
 
         static void unregister(Batcher<?, ?, ?> batcher) {
-            batchers.remove(batcher);
+            activeBatchers.remove(batcher);
         }
     }
 

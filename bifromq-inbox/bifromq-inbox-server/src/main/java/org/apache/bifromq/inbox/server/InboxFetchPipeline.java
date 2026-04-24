@@ -54,6 +54,7 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
     private final Fetcher fetcher;
     private final Disposable disposable;
     private volatile boolean closed = false;
+    private final AtomicBoolean sending = new AtomicBoolean(false);
 
     public InboxFetchPipeline(StreamObserver<InboxFetched> responseObserver,
                               Fetcher fetcher,
@@ -121,8 +122,20 @@ final class InboxFetchPipeline extends AckStream<InboxFetchHint, InboxFetched> i
 
     @Override
     public void send(InboxFetched message) {
-        synchronized (this) {
-            super.send(message);
+        if (closed) {
+            return;
+        }
+        // Use CAS spin-wait instead of synchronized to avoid monitor overhead
+        // in the low-contention gRPC streaming path.
+        while (!sending.compareAndSet(false, true)) {
+            Thread.onSpinWait();
+        }
+        try {
+            if (!closed) {
+                super.send(message);
+            }
+        } finally {
+            sending.set(false);
         }
     }
 
