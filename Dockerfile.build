@@ -56,6 +56,7 @@ RUN apt-get update \
         temurin-21-jdk \
         build-essential \
         make \
+        cmake \
         pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
