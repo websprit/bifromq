@@ -151,7 +151,13 @@ COPY --from=java-builder /opt/apache-bifromq-4.0.0-incubating ${BIFROMQ_HOME}
 # Generate runtime configuration and self-signed TLS certs inline.
 # This avoids requiring external files in the build context (important for CI).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl \
+    && apt-get install -y --no-install-recommends \
+        openssl \
+        libsnappy1v5 \
+        liblz4-1 \
+        libzstd1 \
+        libbz2-1.0 \
+        zlib1g \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p ${BIFROMQ_HOME}/conf/certs \
     && openssl req -x509 -newkey rsa:2048 \
