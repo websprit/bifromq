@@ -63,14 +63,34 @@ class CapacityEstimatorFactory implements ICapacityEstimatorFactory {
         delegate.close();
     }
 
-    private static class FallbackCapacityEstimator<BatcherKey> implements ICapacityEstimator<BatcherKey> {
+    private static class AdaptiveCapacityEstimator<BatcherKey> implements ICapacityEstimator<BatcherKey> {
+        private static final int MAX_INFLIGHT = 65536;
+        private static final int MIN_INFLIGHT = 256;
+        private static final int INITIAL_INFLIGHT = 4096;
+        private static final long LOW_LATENCY_NS = 5_000_000;   // 5ms
+        private static final long HIGH_LATENCY_NS = 100_000_000; // 100ms
+        private static final double EMA_ALPHA = 0.3;
+
+        private volatile double emaLatency = 0;
+        private volatile int maxInflight = INITIAL_INFLIGHT;
 
         @Override
         public void record(long weightedSize, long latencyNs) {
+            if (emaLatency == 0) {
+                emaLatency = latencyNs;
+            } else {
+                emaLatency = EMA_ALPHA * latencyNs + (1 - EMA_ALPHA) * emaLatency;
+            }
+            if (emaLatency < LOW_LATENCY_NS) {
+                maxInflight = Math.min(MAX_INFLIGHT, maxInflight << 1);
+            } else if (emaLatency > HIGH_LATENCY_NS) {
+                maxInflight = Math.max(MIN_INFLIGHT, maxInflight >> 1);
+            }
         }
 
-        public boolean hasCapacity(long inflight, BatcherKey key) {
-            return inflight <= 0;
+        @Override
+        public boolean hasCapacity(long inflightWeight, BatcherKey key) {
+            return inflightWeight < maxInflight;
         }
 
         @Override
@@ -80,6 +100,7 @@ class CapacityEstimatorFactory implements ICapacityEstimatorFactory {
 
         @Override
         public void onBackPressure() {
+            maxInflight = Math.max(MIN_INFLIGHT, maxInflight >> 1);
         }
     }
 
@@ -88,7 +109,7 @@ class CapacityEstimatorFactory implements ICapacityEstimatorFactory {
 
         @Override
         public <BatcherKey> ICapacityEstimator<BatcherKey> get(String name, BatcherKey batcherKey) {
-            return new FallbackCapacityEstimator<>();
+            return new AdaptiveCapacityEstimator<>();
         }
     }
 }
