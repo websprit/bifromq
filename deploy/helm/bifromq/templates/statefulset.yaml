@@ -103,11 +103,11 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: config
-              mountPath: /home/bifromq/conf/standalone.yml
+              mountPath: /bifromq/conf/standalone.yml
               subPath: standalone.yml
             {{- if .Values.persistence.enabled }}
             - name: data
-              mountPath: /home/bifromq/data
+              mountPath: /bifromq/data
             {{- end }}
             {{- if .Values.tls.certSecretName }}
             - name: tls-certs

@@ -72,7 +72,7 @@ tls:
   #    The Secret should contain: tls.crt, tls.key, and optionally ca.crt
   certSecretName: "bifromq-certs"
   # -- Mount path inside the container for certificate files
-  mountPath: "/home/bifromq/conf/certs"
+  mountPath: "/bifromq/conf/certs"
   # -- Certificate file name in the Secret (mapped to certFile in sslConfig)
   certFile: "tls.crt"
   # -- Private key file name in the Secret (mapped to keyFile in sslConfig)
@@ -110,7 +110,7 @@ jvm:
   # -- JVM heap options. Leave empty to use the built-in auto-calculation.
   heapOpts: ""
   # -- JVM GC options. Optimized for JDK 25 ZGC (sub-millisecond pauses).
-  gcOpts: "-XX:+UseZGC -XX:ZAllocationSpikeTolerance=3 -Xlog:async -Xlog:gc*:file=/home/bifromq/logs/gc-%t.log:time,tid,tags:filecount=5,filesize=50m -XX:+CrashOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/bifromq/logs"
+  gcOpts: "-XX:+UseZGC -XX:ZAllocationSpikeTolerance=3 -Xlog:async -Xlog:gc*:file=/bifromq/logs/gc-%t.log:time,tid,tags:filecount=5,filesize=50m -XX:+CrashOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/bifromq/logs"
   # -- Extra JVM options
   extraOpts: "-XX:+UseCompactObjectHeaders"
   # -- Memory limit override for JVM auto-calculation (in bytes).
