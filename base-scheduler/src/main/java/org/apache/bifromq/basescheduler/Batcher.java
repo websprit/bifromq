@@ -21,7 +21,6 @@ package org.apache.bifromq.basescheduler;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
-import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -61,7 +60,6 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
     private final IBatchCallWeighter<CallT> batchCallWeighter;
     private final long maxBurstLatency;
     private final EMALong emaQueueingTime;
-    private final Gauge pipelineDepthGauge;
     private final Counter dropCounter;
     private final Timer batchCallTimer;
     private final Timer batchExecTimer;
@@ -69,10 +67,6 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
     private final DistributionSummary batchCountSummary;
     private final DistributionSummary batchWeightSizeSummary;
     private final DistributionSummary queueingTimeSummary;
-    private final Gauge maxCapacityGauge;
-    private final Gauge queueingCountGauge;
-    private final Gauge inflightCountGauge;
-    private final Gauge inflightWeightGauge;
     // Future to signal shutdown completion
     private final CompletableFuture<Void> shutdownFuture = new CompletableFuture<>();
     private final AtomicLong inFlightWeight = new AtomicLong(0L);
@@ -93,10 +87,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         this.maxBurstLatency = maxBurstLatency;
         this.batchPool = new ConcurrentLinkedDeque<>();
         this.emaQueueingTime = new EMALong(System::nanoTime, 0.1, 0.9, maxBurstLatency);
-        Tags tags = Tags.of("name", name, "key", Integer.toUnsignedString(System.identityHashCode(this)));
-        pipelineDepthGauge = Gauge.builder("batcher.pipeline.depth", pipelineDepth::get)
-                .tags(tags)
-                .register(Metrics.globalRegistry);
+        Tags tags = Tags.of("name", name);
         dropCounter = Counter.builder("batcher.call.drop.count")
                 .tags(tags)
                 .register(Metrics.globalRegistry);
@@ -116,18 +107,6 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
                 .tags(tags)
                 .register(Metrics.globalRegistry);
         queueingTimeSummary = DistributionSummary.builder("batcher.queueing.time")
-                .tags(tags)
-                .register(Metrics.globalRegistry);
-        maxCapacityGauge = Gauge.builder("batcher.capacity.max", () -> capacityEstimator.maxCapacity(key))
-                .tags(tags)
-                .register(Metrics.globalRegistry);
-        queueingCountGauge = Gauge.builder("batcher.queueing.count", queuedCallCount::get)
-                .tags(tags)
-                .register(Metrics.globalRegistry);
-        inflightCountGauge = Gauge.builder("batcher.inflight.count", inFlightCallCount::get)
-                .tags(tags)
-                .register(Metrics.globalRegistry);
-        inflightWeightGauge = Gauge.builder("batcher.inflight.size", inFlightWeight::get)
                 .tags(tags)
                 .register(Metrics.globalRegistry);
     }
@@ -171,7 +150,6 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
     }
 
     private void cleanupMetrics() {
-        Metrics.globalRegistry.remove(pipelineDepthGauge);
         Metrics.globalRegistry.remove(dropCounter);
         Metrics.globalRegistry.remove(batchCallTimer);
         Metrics.globalRegistry.remove(batchExecTimer);
@@ -179,10 +157,6 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         Metrics.globalRegistry.remove(batchCountSummary);
         Metrics.globalRegistry.remove(batchWeightSizeSummary);
         Metrics.globalRegistry.remove(queueingTimeSummary);
-        Metrics.globalRegistry.remove(maxCapacityGauge);
-        Metrics.globalRegistry.remove(queueingCountGauge);
-        Metrics.globalRegistry.remove(inflightCountGauge);
-        Metrics.globalRegistry.remove(inflightWeightGauge);
         IBatchCall<CallT, CallResultT, BatcherKeyT> batchCall;
         while ((batchCall = batchPool.poll()) != null) {
             batchCall.destroy();

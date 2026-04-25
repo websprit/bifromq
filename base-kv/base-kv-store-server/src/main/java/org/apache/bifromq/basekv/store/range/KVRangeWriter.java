@@ -44,11 +44,17 @@ class KVRangeWriter implements IKVRangeWriter<KVRangeWriter> {
     private final ICPableKVSpace space;
     private final IKVSpaceMigratableWriter spaceWriter;
     private final Set<IKVRangeRestoreSession> activeRestoreSessions = new HashSet<>();
+    private final Runnable cacheInvalidator;
 
     KVRangeWriter(KVRangeId id, ICPableKVSpace space) {
+        this(id, space, () -> {});
+    }
+
+    KVRangeWriter(KVRangeId id, ICPableKVSpace space, Runnable cacheInvalidator) {
         this.id = id;
         this.space = space;
         this.spaceWriter = space.toWriter();
+        this.cacheInvalidator = cacheInvalidator;
     }
 
     @Override
@@ -159,5 +165,6 @@ class KVRangeWriter implements IKVRangeWriter<KVRangeWriter> {
             session.done();
         }
         activeRestoreSessions.clear();
+        cacheInvalidator.run();
     }
 }

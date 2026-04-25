@@ -53,6 +53,7 @@ public final class RocksDBDefaultConfigs {
         public static final String ASYNC_WAL_FLUSH = "asyncWALFlush";
         public static final String FSYNC_WAL = "fsyncWAL";
         public static final String GROUP_COMMIT = "groupCommit";
+        public static final String RATE_LIMITER_MAX_BYTES_PER_SEC = "rateLimiterMaxBytesPerSec";
         public static final Struct CP;
         public static final Struct WAL;
 
@@ -66,20 +67,21 @@ public final class RocksDBDefaultConfigs {
                 configBuilder.putFields(COMPACT_MIN_TOMBSTONE_KEYS, toValue(200000));
                 configBuilder.putFields(COMPACT_MIN_TOMBSTONE_RANGES, toValue(100000));
                 configBuilder.putFields(COMPACT_TOMBSTONE_RATIO, toValue(0.3));
-                configBuilder.putFields(BLOCK_CACHE_SIZE, toValue(512 * SizeUnit.MB));
+                configBuilder.putFields(BLOCK_CACHE_SIZE, toValue(1024 * SizeUnit.MB));
                 configBuilder.putFields(WRITE_BUFFER_SIZE, toValue(128 * SizeUnit.MB));
                 configBuilder.putFields(MAX_WRITE_BUFFER_NUMBER, toValue(6));
                 configBuilder.putFields(MIN_WRITE_BUFFER_NUMBER_TO_MERGE, toValue(2));
                 configBuilder.putFields(MIN_BLOB_SIZE, toValue(32 * SizeUnit.KB));
                 configBuilder.putFields(INCREASE_PARALLELISM,
-                                toValue(Math.max(EnvProvider.INSTANCE.availableProcessors() / 4, 2)));
+                                toValue(Math.max(EnvProvider.INSTANCE.availableProcessors() / 2, 4)));
                 configBuilder.putFields(MAX_BACKGROUND_JOBS,
-                                toValue(Math.max(EnvProvider.INSTANCE.availableProcessors() / 4, 2)));
+                                toValue(Math.max(EnvProvider.INSTANCE.availableProcessors() / 2, 4)));
                 configBuilder.putFields(LEVEL0_FILE_NUM_COMPACTION_TRIGGER, toValue(8));
                 configBuilder.putFields(LEVEL0_SLOWDOWN_WRITES_TRIGGER, toValue(20));
                 configBuilder.putFields(LEVEL0_STOP_WRITES_TRIGGER, toValue(24));
                 configBuilder.putFields(MAX_BYTES_FOR_LEVEL_BASE, toValue(128 * 2 * 8 * SizeUnit.MB));
                 configBuilder.putFields(TARGET_FILE_SIZE_BASE, toValue(128 * 2 * SizeUnit.MB));
+                configBuilder.putFields(RATE_LIMITER_MAX_BYTES_PER_SEC, toValue(512 * SizeUnit.MB));
                 Struct sharedConfig = configBuilder.build();
                 CP = sharedConfig.toBuilder()
                                 .putFields(DB_CHECKPOINT_ROOT_DIR, toValue(""))

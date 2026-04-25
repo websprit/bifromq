@@ -31,6 +31,12 @@ class LoadRecordableKVRangeWriter extends KVRangeWriter {
         this.recorder = recorder;
     }
 
+    LoadRecordableKVRangeWriter(KVRangeId id, ICPableKVSpace space, IKVLoadRecorder recorder,
+                                 Runnable cacheInvalidator) {
+        super(id, space, cacheInvalidator);
+        this.recorder = recorder;
+    }
+
     @Override
     public IKVWriter kvWriter() {
         return new LoadRecordableKVWriter(super.kvWriter(), recorder);

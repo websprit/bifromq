@@ -30,7 +30,7 @@ import lombok.Setter;
 @Setter
 public class InboxServerConfig {
     private boolean enable = true;
-    private int workerThreads = Math.max(2, Runtime.getRuntime().availableProcessors() / 4);
+    private int workerThreads = Math.max(4, Runtime.getRuntime().availableProcessors() / 2);
     private Map<String, String> attributes = new HashMap<>();
     private Set<String> defaultGroups = new HashSet<>();
 }

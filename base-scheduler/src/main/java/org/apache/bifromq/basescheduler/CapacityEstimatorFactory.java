@@ -67,6 +67,7 @@ class CapacityEstimatorFactory implements ICapacityEstimatorFactory {
         private static final int MAX_INFLIGHT = 65536;
         private static final int MIN_INFLIGHT = 256;
         private static final int INITIAL_INFLIGHT = 4096;
+        private static final int MAX_BATCH_SIZE = 10000;
         private static final long LOW_LATENCY_NS = 5_000_000;   // 5ms
         private static final long HIGH_LATENCY_NS = 100_000_000; // 100ms
         private static final double EMA_ALPHA = 0.3;
@@ -95,7 +96,7 @@ class CapacityEstimatorFactory implements ICapacityEstimatorFactory {
 
         @Override
         public long maxCapacity(BatcherKey key) {
-            return Long.MAX_VALUE;
+            return MAX_BATCH_SIZE;
         }
 
         @Override

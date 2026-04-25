@@ -644,7 +644,7 @@ public class KVRangeFSM implements IKVRangeFSM {
         return metricManager.recordMutateCoProc(() -> submitMutationCommand(KVRangeCommand.newBuilder()
             .setVer(ver)
             .setTaskId(nextTaskId())
-            .setRwCoProc(mutate)
+            .setRwCoProcBuf(mutate.toByteString())
             .build()));
     }
 
@@ -791,10 +791,14 @@ public class KVRangeFSM implements IKVRangeFSM {
                                         } else {
                                             rangeWriter.lastAppliedIndex(entry.getIndex());
                                             rangeWriter.done();
-                                            if (command.hasRwCoProc()) {
+                                            if (command.hasRwCoProcBuf()) {
                                                 IKVLoadRecord loadRecord = loadRecorder.stop();
-                                                splitHinters.forEach(
-                                                    hint -> hint.recordMutate(command.getRwCoProc(), loadRecord));
+                                                try {
+                                                    RWCoProcInput coProcInput = RWCoProcInput.parseFrom(command.getRwCoProcBuf());
+                                                    splitHinters.forEach(
+                                                        hint -> hint.recordMutate(coProcInput, loadRecord));
+                                                } catch (Throwable ignored) {
+                                                }
                                             }
                                             callback.run();
                                             linearizer.afterLogApplied(entry.getIndex());
@@ -1513,7 +1517,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                         resetHinterAndCoProc(NULL_BOUNDARY);
                     }, fsmExecutor));
             }
-            case PUT, DELETE, RWCOPROC -> {
+            case PUT, DELETE, RWCOPROCBUF -> {
                 if (!boundaryCompatible(reqVer, ver)) {
                     onDone.complete(() -> finishCommandWithError(taskId,
                         new KVRangeException.BadVersion("Version Mismatch", latestLeaderDescriptor())));
@@ -1549,9 +1553,9 @@ public class KVRangeFSM implements IKVRangeFSM {
                             rangeWriter.kvWriter().put(put.getKey(), put.getValue());
                             onDone.complete(() -> finishCommand(taskId, value.orElse(ByteString.EMPTY)));
                         }
-                        case RWCOPROC -> {
+                        case RWCOPROCBUF -> {
                             Supplier<IKVRangeCoProc.MutationResult> resultSupplier =
-                                coProc.mutate(command.getRwCoProc(), rangeReader, rangeWriter.kvWriter(), isLeader);
+                                coProc.mutate(RWCoProcInput.parseFrom(command.getRwCoProcBuf()), rangeReader, rangeWriter.kvWriter(), isLeader);
                             onDone.complete(() -> {
                                 IKVRangeCoProc.MutationResult result = resultSupplier.get();
                                 result.fact().ifPresent(factSubject::onNext);

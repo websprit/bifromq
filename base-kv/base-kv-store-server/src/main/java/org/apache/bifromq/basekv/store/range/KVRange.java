@@ -25,12 +25,18 @@ import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_STATE_B
 import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_VER_BYTES;
 import static org.apache.bifromq.basekv.utils.BoundaryUtil.NULL_BOUNDARY;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.protobuf.ByteString;
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.subjects.BehaviorSubject;
+import java.time.Duration;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Consumer;
 import org.apache.bifromq.basekv.localengine.ICPableKVSpace;
+import org.apache.bifromq.basekv.localengine.IKVSpaceReader;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.KVRangeId;
 import org.apache.bifromq.basekv.proto.KVRangeSnapshot;
@@ -53,6 +59,20 @@ class KVRange implements IKVRange {
     private final BehaviorSubject<Long> lastAppliedIndexSubject;
     private final Disposable disposable;
 
+    // volatile metadata caches to avoid RxJava subscription overhead on hot paths
+    private volatile long cachedVer = -1L;
+    private volatile State cachedState = State.newBuilder().setType(State.StateType.NoUse).build();
+    private volatile ClusterConfig cachedClusterConfig = ClusterConfig.getDefaultInstance();
+    private volatile Boundary cachedBoundary = NULL_BOUNDARY;
+    private volatile long cachedLastAppliedIndex = -1L;
+
+    // Hot-key read cache: Caffeine with 1s TTL, max 1024 entries
+    private final Cache<ByteString, Optional<ByteString>> readCache;
+
+    // Key invalidation callback consumed by writers
+    private final Consumer<ByteString> cacheInvalidator;
+    private final Runnable cacheFullInvalidator;
+
     KVRange(KVRangeId id, ICPableKVSpace kvSpace, String... tags) {
         this.id = id;
         this.kvSpace = kvSpace;
@@ -64,6 +84,12 @@ class KVRange implements IKVRange {
         boundarySubject = BehaviorSubject.createDefault(NULL_BOUNDARY);
         lastAppliedIndexSubject = BehaviorSubject.createDefault(-1L);
         disposable = kvSpace.metadata().subscribe(this::onMetadataChanged);
+        readCache = Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofSeconds(1))
+            .maximumSize(1024)
+            .build();
+        cacheInvalidator = readCache::invalidate;
+        cacheFullInvalidator = readCache::invalidateAll;
     }
 
     public KVRange(KVRangeId id, ICPableKVSpace kvSpace, KVRangeSnapshot snapshot, String... tags) {
@@ -83,7 +109,7 @@ class KVRange implements IKVRange {
 
     @Override
     public long currentVer() {
-        return versionSubject.blockingFirst();
+        return cachedVer;
     }
 
     @Override
@@ -93,7 +119,7 @@ class KVRange implements IKVRange {
 
     @Override
     public State currentState() {
-        return stateSubject.blockingFirst();
+        return cachedState;
     }
 
     @Override
@@ -103,7 +129,7 @@ class KVRange implements IKVRange {
 
     @Override
     public ClusterConfig currentClusterConfig() {
-        return clusterConfigSubject.blockingFirst();
+        return cachedClusterConfig;
     }
 
     @Override
@@ -113,7 +139,7 @@ class KVRange implements IKVRange {
 
     @Override
     public Boundary currentBoundary() {
-        return boundarySubject.blockingFirst();
+        return cachedBoundary;
     }
 
     @Override
@@ -123,7 +149,7 @@ class KVRange implements IKVRange {
 
     @Override
     public long currentLastAppliedIndex() {
-        return lastAppliedIndexSubject.blockingFirst();
+        return cachedLastAppliedIndex;
     }
 
     @Override
@@ -156,17 +182,17 @@ class KVRange implements IKVRange {
 
     @Override
     public IKVRangeRefreshableReader newReader() {
-        return new KVRangeRefreshableReader(kvSpace.reader());
+        return new CachingKVRangeReader(kvSpace.reader(), readCache);
     }
 
     @Override
     public IKVRangeWriter<?> toWriter() {
-        return new KVRangeWriter(id, kvSpace);
+        return new KVRangeWriter(id, kvSpace, cacheFullInvalidator);
     }
 
     @Override
     public IKVRangeWriter<?> toWriter(IKVLoadRecorder recorder) {
-        return new LoadRecordableKVRangeWriter(id, kvSpace, recorder);
+        return new LoadRecordableKVRangeWriter(id, kvSpace, recorder, cacheFullInvalidator);
     }
 
     @Override
@@ -211,14 +237,18 @@ class KVRange implements IKVRange {
 
     private void updateVersion(ByteString versionBytes) {
         if (versionBytes != null) {
-            versionSubject.onNext(KVUtil.toLongNativeOrder(versionBytes));
+            long ver = KVUtil.toLongNativeOrder(versionBytes);
+            cachedVer = ver;
+            versionSubject.onNext(ver);
         }
     }
 
     private void updateState(ByteString stateBytes) {
         if (stateBytes != null) {
             try {
-                stateSubject.onNext(State.parseFrom(stateBytes));
+                State state = State.parseFrom(stateBytes);
+                cachedState = state;
+                stateSubject.onNext(state);
             } catch (Throwable e) {
                 logger.warn("Failed to parse state from bytes", e);
             }
@@ -228,7 +258,9 @@ class KVRange implements IKVRange {
     private void updateClusterConfig(ByteString clusterConfigBytes) {
         if (clusterConfigBytes != null) {
             try {
-                clusterConfigSubject.onNext(ClusterConfig.parseFrom(clusterConfigBytes));
+                ClusterConfig clusterConfig = ClusterConfig.parseFrom(clusterConfigBytes);
+                cachedClusterConfig = clusterConfig;
+                clusterConfigSubject.onNext(clusterConfig);
             } catch (Throwable e) {
                 logger.warn("Failed to parse cluster config from bytes", e);
             }
@@ -238,7 +270,9 @@ class KVRange implements IKVRange {
     private void updateBoundary(ByteString boundaryBytes) {
         if (boundaryBytes != null) {
             try {
-                boundarySubject.onNext(Boundary.parseFrom(boundaryBytes));
+                Boundary boundary = Boundary.parseFrom(boundaryBytes);
+                cachedBoundary = boundary;
+                boundarySubject.onNext(boundary);
             } catch (Throwable e) {
                 logger.warn("Failed to parse boundary from bytes", e);
             }
@@ -247,7 +281,9 @@ class KVRange implements IKVRange {
 
     private void updateLastAppliedIndex(ByteString lastAppliedIndexBytes) {
         if (lastAppliedIndexBytes != null) {
-            lastAppliedIndexSubject.onNext(KVUtil.toLong(lastAppliedIndexBytes));
+            long idx = KVUtil.toLong(lastAppliedIndexBytes);
+            cachedLastAppliedIndex = idx;
+            lastAppliedIndexSubject.onNext(idx);
         }
     }
 }

@@ -35,12 +35,14 @@ import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfig
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MAX_WRITE_BUFFER_NUMBER;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MIN_BLOB_SIZE;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.MIN_WRITE_BUFFER_NUMBER_TO_MERGE;
+import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.RATE_LIMITER_MAX_BYTES_PER_SEC;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.STATS_LEVEL;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.TARGET_FILE_SIZE_BASE;
 import static org.apache.bifromq.basekv.localengine.rocksdb.RocksDBDefaultConfigs.WRITE_BUFFER_SIZE;
 
 import com.google.protobuf.Struct;
 import java.util.EnumSet;
+import org.apache.bifromq.baseenv.EnvProvider;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.BloomFilter;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -80,8 +82,9 @@ final class RocksDBOptionsUtil {
                 .setWalTtlSeconds(0)
                 .setEnablePipelinedWrite(true)
                 .setTwoWriteQueues(false)
+                .setMaxSubcompactions(Math.max(1, EnvProvider.INSTANCE.availableProcessors() / 4))
                 .setWalBytesPerSync(1024 * 1024)
-                .setRateLimiter(autoRelease(new RateLimiter(512 * SizeUnit.MB,
+                .setRateLimiter(autoRelease(new RateLimiter((long) numVal(conf, RATE_LIMITER_MAX_BYTES_PER_SEC),
                         RateLimiter.DEFAULT_REFILL_PERIOD_MICROS,
                         RateLimiter.DEFAULT_FAIRNESS,
                         RateLimiter.DEFAULT_MODE, true), opts))
@@ -121,6 +124,8 @@ final class RocksDBOptionsUtil {
     static DBOptions buildWALableDBOption(Struct conf) {
         DBOptions dbOptions = buildDBOptions(conf);
         dbOptions.setManualWalFlush(boolVal(conf, ASYNC_WAL_FLUSH))
+                .setTwoWriteQueues(true)
+                .setEnablePipelinedWrite(false)
                 .setBytesPerSync(1048576)
                 .setAllowConcurrentMemtableWrite(true);
         return dbOptions;
@@ -146,7 +151,7 @@ final class RocksDBOptionsUtil {
                                 // Begin to use partitioned index filters
                                 // https://github.com/facebook/rocksdb/wiki/Partitioned-Index-Filters#how-to-use-it
                                 .setIndexType(IndexType.kTwoLevelIndexSearch) //
-                                .setFilterPolicy(autoRelease(new BloomFilter(16, false), cfOptions))
+                                .setFilterPolicy(autoRelease(new BloomFilter(20, false), cfOptions))
                                 .setPartitionFilters(true) //
                                 .setMetadataBlockSize(8 * SizeUnit.KB) //
                                 .setCacheIndexAndFilterBlocks(true) //
@@ -224,7 +229,7 @@ final class RocksDBOptionsUtil {
                 .setLevel0SlowdownWritesTrigger((int) numVal(conf, LEVEL0_SLOWDOWN_WRITES_TRIGGER))
                 // Maximum number of level-0 files. We stop writes at this point.
                 .setLevel0StopWritesTrigger((int) numVal(conf, LEVEL0_STOP_WRITES_TRIGGER))
-                .setLevelCompactionDynamicLevelBytes(false)
+                .setLevelCompactionDynamicLevelBytes(true)
                 // enable blob files
                 .setEnableBlobFiles(true)
                 .setPrepopulateBlobCache(PrepopulateBlobCache.PREPOPULATE_BLOB_FLUSH_ONLY)

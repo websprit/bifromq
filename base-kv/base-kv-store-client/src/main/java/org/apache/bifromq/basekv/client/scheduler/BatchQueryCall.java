@@ -22,9 +22,11 @@ package org.apache.bifromq.basekv.client.scheduler;
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
@@ -82,13 +84,23 @@ public abstract class BatchQueryCall<ReqT, RespT> implements IBatchCall<ReqT, Re
     }
 
     private CompletableFuture<Void> execute(Deque<BatchQueryCall.BatchCallTask<ReqT, RespT>> batchCallTasks) {
-        CompletableFuture<Void> chained = CompletableFuture.completedFuture(null);
+        if (batcherKey.linearizable) {
+            // Linearizable queries require serial execution to respect version ordering
+            CompletableFuture<Void> chained = CompletableFuture.completedFuture(null);
+            BatchCallTask<ReqT, RespT> batchCallTask;
+            while ((batchCallTask = batchCallTasks.poll()) != null) {
+                BatchCallTask<ReqT, RespT> current = batchCallTask;
+                chained = chained.thenCompose(v -> fireSingleBatch(current));
+            }
+            return chained;
+        }
+        // Non-linearizable queries: fire all sub-batches concurrently
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
         BatchCallTask<ReqT, RespT> batchCallTask;
         while ((batchCallTask = batchCallTasks.poll()) != null) {
-            BatchCallTask<ReqT, RespT> current = batchCallTask;
-            chained = chained.thenCompose(v -> fireSingleBatch(current));
+            futures.add(fireSingleBatch(batchCallTask));
         }
-        return chained;
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
     }
 
     private CompletableFuture<Void> fireSingleBatch(BatchCallTask<ReqT, RespT> batchCallTask) {

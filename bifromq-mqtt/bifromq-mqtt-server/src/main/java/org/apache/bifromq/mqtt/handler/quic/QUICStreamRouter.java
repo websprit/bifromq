@@ -21,6 +21,7 @@ package org.apache.bifromq.mqtt.handler.quic;
 
 import io.netty.incubator.codec.quic.QuicChannel;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
@@ -83,7 +84,7 @@ public class QUICStreamRouter {
      * @return the QuicStreamChannel to use for this topic
      */
     public QuicStreamChannel resolveStream(String topic) {
-        int bucket = Math.abs(topic.hashCode() % dataStreamCount);
+        int bucket = Math.abs(murmur3_x86_32(topic) % dataStreamCount);
         return dataStreams[bucket];
     }
 
@@ -94,7 +95,7 @@ public class QUICStreamRouter {
      * @return the stream bucket index
      */
     public int resolveStreamIndex(String topic) {
-        return Math.abs(topic.hashCode() % dataStreamCount);
+        return Math.abs(murmur3_x86_32(topic) % dataStreamCount);
     }
 
     /**
@@ -169,5 +170,49 @@ public class QUICStreamRouter {
             }
         }
         return true;
+    }
+
+    // MurmurHash3_x86_32: uniform hash to avoid topic hash skew with String.hashCode()
+    private static int murmur3_x86_32(String data) {
+        byte[] bytes = data.getBytes(StandardCharsets.UTF_8);
+        int len = bytes.length;
+        int seed = 0;
+        int c1 = 0xcc9e2d51;
+        int c2 = 0x1b873593;
+        int h1 = seed;
+        int roundedEnd = (len & 0xfffffffc);
+        for (int i = 0; i < roundedEnd; i += 4) {
+            int k1 = (bytes[i] & 0xff)
+                | ((bytes[i + 1] & 0xff) << 8)
+                | ((bytes[i + 2] & 0xff) << 16)
+                | (bytes[i + 3] << 24);
+            k1 *= c1;
+            k1 = Integer.rotateLeft(k1, 15);
+            k1 *= c2;
+            h1 ^= k1;
+            h1 = Integer.rotateLeft(h1, 13);
+            h1 = h1 * 5 + 0xe6546b64;
+        }
+        int k1 = 0;
+        int tail = roundedEnd;
+        switch (len & 3) {
+            case 3:
+                k1 ^= (bytes[tail + 2] & 0xff) << 16;
+            case 2:
+                k1 ^= (bytes[tail + 1] & 0xff) << 8;
+            case 1:
+                k1 ^= (bytes[tail] & 0xff);
+                k1 *= c1;
+                k1 = Integer.rotateLeft(k1, 15);
+                k1 *= c2;
+                h1 ^= k1;
+        }
+        h1 ^= len;
+        h1 ^= (h1 >>> 16);
+        h1 *= 0x85ebca6b;
+        h1 ^= (h1 >>> 13);
+        h1 *= 0xc2b2ae35;
+        h1 ^= (h1 >>> 16);
+        return h1;
     }
 }

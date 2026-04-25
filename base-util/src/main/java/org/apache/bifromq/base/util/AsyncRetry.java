@@ -22,6 +22,7 @@ package org.apache.bifromq.base.util;
 import static org.apache.bifromq.base.util.CompletableFutureUtil.unwrap;
 
 import java.util.Objects;
+import java.util.Random;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -95,6 +96,8 @@ public class AsyncRetry {
         return CascadeCancelCompletableFuture.fromRoot(onDone);
     }
 
+    private static final Random JITTER = new Random();
+
     private static <T> void execLoop(Supplier<CompletableFuture<T>> taskSupplier,
                                      BiPredicate<T, Throwable> retryPredicate,
                                      long initialBackoffNanos,
@@ -151,6 +154,8 @@ public class AsyncRetry {
 
             // compute next delay (exponential, capped by remaining budget)
             long delay = initialBackoffNanos * (1L << Math.min(retryCount, 30)); // guard overflow
+            // add ±50% jitter to avoid thundering herd
+            delay = (long) (delay * (0.5 + JITTER.nextDouble()));
             long remaining = maxDelayNanos - delayNanosSoFar;
             if (delay > remaining) {
                 delay = remaining;

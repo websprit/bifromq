@@ -88,6 +88,6 @@ message KVRangeCommand{
 
     Delete delete = 11;
     Put put = 12;
-    RWCoProcInput rwCoProc = 13;
+    bytes rwCoProcBuf = 13;
   }
 }

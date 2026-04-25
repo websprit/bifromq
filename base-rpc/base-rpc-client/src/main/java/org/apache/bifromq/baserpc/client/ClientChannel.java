@@ -35,7 +35,8 @@ import io.netty.handler.ssl.SslContext;
 import io.reactivex.rxjava3.core.Observable;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedTransferQueue;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -84,8 +85,9 @@ class ClientChannel implements IClientChannel {
         } else {
             executorService = ExecutorServiceMetrics.monitor(Metrics.globalRegistry,
                 new ThreadPoolExecutor(workerThreads, workerThreads, 0L,
-                    TimeUnit.MILLISECONDS, new LinkedTransferQueue<>(),
-                    EnvProvider.INSTANCE.newThreadFactory(serviceUniqueName + "-client-executor")),
+                    TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(workerThreads * 1000),
+                    EnvProvider.INSTANCE.newThreadFactory(serviceUniqueName + "-client-executor"),
+                    new ThreadPoolExecutor.CallerRunsPolicy()),
                 serviceUniqueName + "-rpc-client-executor");
         }
         String target = TrafficGovernorNameResolverProvider.SCHEME + "://" + serviceUniqueName;
@@ -108,7 +110,7 @@ class ClientChannel implements IClientChannel {
         }
 
         internalChannel = InProcAware.wrap(target, internalChannelBuilder)
-            .idleTimeout(idleTimeoutInSec <= 0 ? (365 * 24 * 3600) : idleTimeoutInSec, TimeUnit.SECONDS)
+            .idleTimeout(idleTimeoutInSec <= 0 ? 300 : idleTimeoutInSec, TimeUnit.SECONDS)
             .defaultLoadBalancingPolicy(loadBalancerProvider.getPolicyName())
             .intercept(new TenantAwareClientInterceptor())
             .executor(executorService)
