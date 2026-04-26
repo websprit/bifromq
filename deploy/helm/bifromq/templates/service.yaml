@@ -41,6 +41,10 @@ spec:
       targetPort: mqtt-quic
       protocol: UDP
     {{- end }}
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
   {{- with .Values.service.externalIPs }}
   externalIPs:
     {{- toYaml . | nindent 4 }}

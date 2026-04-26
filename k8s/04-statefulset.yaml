@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: bifromq
-          image: apache/bifromq:4.0.0-incubating
+          image: ghcr.io/websprit/bifromq:feature-perf-optimization
           imagePullPolicy: IfNotPresent
           ports:
             - name: mqtt-tcp
@@ -43,6 +43,9 @@ spec:
               readOnly: true
             - name: data
               mountPath: /bifromq/data
+          env:
+            - name: MEM_LIMIT
+              value: "4294967296"
           resources:
             requests:
               memory: "2Gi"
