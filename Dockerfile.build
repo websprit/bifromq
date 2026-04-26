@@ -122,7 +122,8 @@ COPY --from=native-builder \
     /build/third-party/rocksdb/java/target/ /tmp/rocksdb-java-target/
 RUN rocksdbSo="librocksdbjni-linux64.so"; \
     [ "$TARGETARCH" = "arm64" ] && rocksdbSo="librocksdbjni-linux-aarch64.so"; \
-    cp "/tmp/rocksdb-java-target/${rocksdbSo}" \
+    mkdir -p "/build/third-party/rocksdb/java/target" \
+    && cp "/tmp/rocksdb-java-target/${rocksdbSo}" \
         "/build/third-party/rocksdb/java/target/"
 
 # 3. RocksDB JNI jar: produced by make rocksdbjava, contains both Java classes
