@@ -136,8 +136,7 @@ class SessionRegistry implements ISessionRegistry {
         if (sessionOwner.isPresent()) {
             ISessionRegister sessionRegister = clientRegisterMap.get(sessionOwner.get());
             if (sessionRegister != null) {
-                return Optional.of(
-                    new SessionRegistration(sessionOwner.get(), clientRegisterMap.get(sessionOwner.get())));
+                return Optional.of(new SessionRegistration(sessionOwner.get(), sessionRegister));
             }
         }
         return Optional.empty();

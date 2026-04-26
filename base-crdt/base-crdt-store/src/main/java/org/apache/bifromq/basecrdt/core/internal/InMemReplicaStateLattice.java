@@ -366,12 +366,15 @@ class InMemReplicaStateLattice implements IReplicaStateLattice {
                 if (!toVisits.isEmpty()) {
                     Event nextVisitEvent = toVisits.getFirst();
                     EventInfo nextVisitEventInfo = eventDAG.get(nextVisitEvent);
-                    while (!events.isEmpty()) {
+                    while (events.size() > 1) {
                         events.removeLast();
                         Event lastEvent = events.getLast();
                         if (nextVisitEventInfo.replacedBy.contains(lastEvent)) {
                             break;
                         }
+                    }
+                    if (events.size() == 1) {
+                        events.removeLast();
                     }
                 }
             } else {

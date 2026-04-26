@@ -221,11 +221,21 @@ abstract class CausalCRDTInflater<D extends IDotStore, O extends ICRDTOperation,
     private void scheduleInflation() {
         if (inflationScheduled.compareAndSet(false, true)) {
             Runnable task = () -> submitTask(() -> {
+                JoinTask joinTask;
+                synchronized (this) {
+                    joinTask = currentJoin;
+                    currentJoin = null;
+                }
+                Optional<JoinTask> opTask = buildOpTask();
                 try {
-                    inflate();
+                    inflate(opTask, joinTask);
                     scheduleCompaction();
                 } catch (Throwable e) {
                     log.error("Inflation[{}] error", toPrintable(replica), e);
+                    opTask.ifPresent(t -> t.onDone.completeExceptionally(e));
+                    if (joinTask != null) {
+                        joinTask.onDone.completeExceptionally(e);
+                    }
                 } finally {
                     inflationScheduled.set(false);
                 }
@@ -257,18 +267,14 @@ abstract class CausalCRDTInflater<D extends IDotStore, O extends ICRDTOperation,
         }
     }
 
-    private void inflate() {
+    private void inflate(Optional<JoinTask> prebuiltOpTask, JoinTask prebuiltJoinTask) {
         Timer.Sample sample = Timer.start();
         List<Replacement> deltas = null;
-        Optional<JoinTask> opTask = buildOpTask();
+        Optional<JoinTask> opTask = prebuiltOpTask;
         if (opTask.isPresent()) {
             deltas = opTask.get().deltas;
         }
-        JoinTask joinTask;
-        synchronized (this) {
-            joinTask = currentJoin;
-            currentJoin = null;
-        }
+        JoinTask joinTask = prebuiltJoinTask;
         if (joinTask != null) {
             if (deltas == null) {
                 deltas = joinTask.deltas;

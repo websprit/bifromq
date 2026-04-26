@@ -44,7 +44,9 @@ public class CRDTUtil {
     }
 
     public static Iterator<HostMember> iterate(IORMap hostListCRDT) {
-        return Iterators.transform(hostListCRDT.keys(), orMapkey -> parse(hostListCRDT.getMVReg(orMapkey.key())).get());
+        return Iterators.filter(
+            Iterators.transform(hostListCRDT.keys(), orMapkey -> parse(hostListCRDT.getMVReg(orMapkey.key())).orElse(null)),
+            Objects::nonNull);
     }
 
     private static Optional<HostMember> parse(IMVReg value) {

@@ -76,11 +76,20 @@ class BatchSessionExistCall implements IBatchCall<OnlineCheckRequest, OnlineChec
                     switch (reply.getCode()) {
                         case OK -> {
                             ICallTask<OnlineCheckRequest, OnlineCheckResult, String> task;
-                            assert reply.getExistCount() == batchedTasks.size();
-                            int i = 0;
-                            while ((task = batchedTasks.poll()) != null) {
-                                task.resultPromise().complete(reply.getExist(i++)
-                                    ? OnlineCheckResult.EXISTS : OnlineCheckResult.NOT_EXISTS);
+                            int replyCount = reply.getExistCount();
+                            int taskCount = batchedTasks.size();
+                            if (replyCount != taskCount) {
+                                log.warn("Session exist reply count {} does not match task count {}",
+                                    replyCount, taskCount);
+                                while ((task = batchedTasks.poll()) != null) {
+                                    task.resultPromise().complete(OnlineCheckResult.ERROR);
+                                }
+                            } else {
+                                int i = 0;
+                                while ((task = batchedTasks.poll()) != null) {
+                                    task.resultPromise().complete(reply.getExist(i++)
+                                        ? OnlineCheckResult.EXISTS : OnlineCheckResult.NOT_EXISTS);
+                                }
                             }
                         }
                         default -> {

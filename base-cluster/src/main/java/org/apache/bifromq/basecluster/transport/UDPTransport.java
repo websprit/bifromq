@@ -118,10 +118,12 @@ public final class UDPTransport extends AbstractTransport {
         sendBytes.increment(packet.getSerializedSize());
         CompletableFuture<Void> ret = new CompletableFuture<>();
         channel.writeAndFlush(new DefaultAddressedEnvelope<>(packet, recipient)).addListener(future -> {
-            if (!future.isSuccess()) {
+            if (future.isSuccess()) {
+                ret.complete(null);
+            } else {
                 log.warn("failed to send packet via udp, recipient={}", recipient, future.cause());
+                ret.completeExceptionally(future.cause());
             }
-            ret.complete(null);
         });
         return ret;
     }

@@ -130,7 +130,7 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
     private final Subject<Map<String, String>> storeToServerSubject = BehaviorSubject.createDefault(emptyMap());
     private final Observable<ClusterInfo> clusterInfoObservable;
     // key: storeId
-    private final Map<String, List<IQueryPipeline>> lnrQueryPplns = Maps.newHashMap();
+    private volatile Map<String, List<IQueryPipeline>> lnrQueryPplns = Maps.newHashMap();
     private final AtomicReference<NavigableMap<Boundary, KVRangeSetting>> effectiveRouter =
         new AtomicReference<>(Collections.unmodifiableNavigableMap(new TreeMap<>(BoundaryUtil::compare)));
 
@@ -574,7 +574,9 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
 
     private void refreshQueryPipelines(Set<String> allStoreIds) {
         Map<String, List<IQueryPipeline>> nextQueryPplns = new HashMap<>();
+        Map<String, List<IQueryPipeline>> nextLnrQueryPplns = new HashMap<>();
         Map<String, List<IQueryPipeline>> currentQueryPplns = queryPplns;
+        Map<String, List<IQueryPipeline>> currentLnrQueryPplns = lnrQueryPplns;
         for (String storeId : allStoreIds) {
             if (currentQueryPplns.containsKey(storeId)) {
                 nextQueryPplns.put(storeId, currentQueryPplns.get(storeId));
@@ -584,11 +586,23 @@ final class BaseKVStoreClient implements IBaseKVStoreClient {
                     .forEach(i -> queryPipelines.add(createQueryPipeline(storeId)));
                 nextQueryPplns.put(storeId, queryPipelines);
             }
+            if (currentLnrQueryPplns.containsKey(storeId)) {
+                nextLnrQueryPplns.put(storeId, currentLnrQueryPplns.get(storeId));
+            } else {
+                List<IQueryPipeline> lnrPipelines = new ArrayList<>(queryPipelinesPerStore);
+                IntStream.range(0, queryPipelinesPerStore)
+                    .forEach(i -> lnrPipelines.add(createLinearizedQueryPipeline(storeId)));
+                nextLnrQueryPplns.put(storeId, lnrPipelines);
+            }
         }
         queryPplns = nextQueryPplns;
+        lnrQueryPplns = nextLnrQueryPplns;
         // clear query pipelines targeting non-exist storeId;
         for (String storeId : Sets.difference(currentQueryPplns.keySet(), allStoreIds)) {
             currentQueryPplns.get(storeId).forEach(IQueryPipeline::close);
+        }
+        for (String storeId : Sets.difference(currentLnrQueryPplns.keySet(), allStoreIds)) {
+            currentLnrQueryPplns.get(storeId).forEach(IQueryPipeline::close);
         }
     }
 

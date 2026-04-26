@@ -48,7 +48,7 @@ public class MemberSelector implements IRecipientSelector {
 
     @Override
     public Collection<? extends IRecipient> selectForSpread(int limit) {
-        List<IRecipient> addresses = recipients;
+        List<IRecipient> addresses = new ArrayList<>(recipients);
         if (addresses.size() <= limit) {
             return addresses;
         }

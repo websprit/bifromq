@@ -122,6 +122,10 @@ class RetainStoreCoProc implements IKVRangeCoProc {
                 afterMutate.set(gc(coProcInput.getGc(), replyBuilder, isLeader, writer));
                 outputBuilder.setGc(replyBuilder);
             }
+            default -> {
+                log.error("Unknown co proc type in mutate: {}", coProcInput.getTypeCase());
+                afterMutate.set(() -> {});
+            }
         }
         RWCoProcOutput output = RWCoProcOutput.newBuilder().setRetainService(outputBuilder.build()).build();
         return () -> {

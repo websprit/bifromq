@@ -51,6 +51,15 @@ public abstract class AckStream<AckT, MsgT> extends AbstractStreamObserver<AckT,
         }
     }
 
+    public void closeWithError(Throwable t) {
+        if (closed.compareAndSet(false, true)) {
+            ackSubject.onError(t);
+            if (!responseObserver.isCancelled()) {
+                responseObserver.onError(t);
+            }
+        }
+    }
+
     @Override
     public final void onNext(AckT value) {
         meter.recordCount(RPCMetric.StreamAckReceiveCount);
@@ -59,7 +68,7 @@ public abstract class AckStream<AckT, MsgT> extends AbstractStreamObserver<AckT,
 
     @Override
     public final void onError(Throwable t) {
-        close();
+        closeWithError(t);
     }
 
     @Override
