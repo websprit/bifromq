@@ -65,7 +65,7 @@ RUN apt-get update \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-ENV JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-amd64
+ENV JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-$(dpkg --print-architecture)
 
 # --- Build RocksDB JNI ---
 # COPY only rocksdb sources first for layer cache (large, slow to compile)
