@@ -68,7 +68,7 @@ RUN apt-get update \
 # --- Build RocksDB JNI ---
 # COPY only rocksdb sources first for layer cache (large, slow to compile)
 COPY third-party/rocksdb/ /build/third-party/rocksdb/
-RUN export JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-$(dpkg --print-architecture) \
+RUN export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac)))) \
     && cd /build/third-party/rocksdb \
     && rm -f make_config.mk \
     && make clean 2>/dev/null || true \
