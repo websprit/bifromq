@@ -105,6 +105,17 @@ RUN rocksdbSo="librocksdbjni-linux64.so"; \
     && cp "/tmp/rocksdb-java-target/${rocksdbSo}" \
         "/build/third-party/rocksdb/java/target/"
 
+# Copy RocksDB JNI jar from native-builder and install to local Maven repo
+COPY --from=native-builder \
+    /build/third-party/rocksdb/java/target/rocksdbjni-*.jar /tmp/rocksdbjni.jar
+RUN mvn install:install-file \
+    -Dfile=/tmp/rocksdbjni.jar \
+    -DgroupId=org.rocksdb \
+    -DartifactId=rocksdbjni \
+    -Dversion=11.2.0 \
+    -Dpackaging=jar \
+    --no-transfer-progress
+
 # Install RocksDB JNI jar to local Maven repo
 RUN mvn install:install-file \
     -Dfile=/tmp/rocksdbjni.jar \
