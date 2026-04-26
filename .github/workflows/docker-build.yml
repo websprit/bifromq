@@ -45,15 +45,20 @@ env:
 jobs:
   # ===========================================================================
   # Build for a single platform (runs in parallel for amd64 and arm64)
+  # Key optimization: arm64 uses native ARM runner to avoid QEMU emulation
   # ===========================================================================
   build:
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - linux/amd64
-          - linux/arm64
-    runs-on: ubuntu-latest
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -62,10 +67,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Prepare platform suffix
-        id: prep
-        run: echo "suffix=$(echo ${{ matrix.platform }} | sed 's/linux\///')" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -78,14 +79,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Cache Maven, Cargo, and RocksDB build artifacts across runs
+      # Cache Maven dependencies across runs
       - name: Cache Maven dependencies
         uses: actions/cache@v4
         with:
           path: ~/.m2/repository
-          key: maven-${{ runner.os }}-${{ steps.prep.outputs.suffix }}-${{ hashFiles('**/pom.xml') }}
+          key: maven-${{ runner.os }}-${{ matrix.suffix }}-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
-            maven-${{ runner.os }}-${{ steps.prep.outputs.suffix }}-
+            maven-${{ runner.os }}-${{ matrix.suffix }}-
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -93,9 +94,9 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: cargo-${{ runner.os }}-${{ steps.prep.outputs.suffix }}-${{ hashFiles('bifromq-native/Cargo.lock') }}
+          key: cargo-${{ runner.os }}-${{ matrix.suffix }}-${{ hashFiles('bifromq-native/Cargo.lock') }}
           restore-keys: |
-            cargo-${{ runner.os }}-${{ steps.prep.outputs.suffix }}-
+            cargo-${{ runner.os }}-${{ matrix.suffix }}-
 
       # Populate m2-cache from CI cache so Docker build can reuse it
       - name: Prepare Maven cache for Docker
@@ -127,8 +128,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: ${{ github.event_name != 'pull_request' }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
-          cache-from: type=gha,scope=${{ steps.prep.outputs.suffix }}
-          cache-to: type=gha,scope=${{ steps.prep.outputs.suffix }},mode=max
+          cache-from: type=gha,scope=${{ matrix.suffix }}
+          cache-to: type=gha,scope=${{ matrix.suffix }},mode=max
           build-args: |
             MAVEN_CLI_OPTS=${{ inputs.maven_opts || '-Pbuild-release' }}
 
@@ -141,7 +142,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ steps.prep.outputs.suffix }}
+          name: digest-${{ matrix.suffix }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1

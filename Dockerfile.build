@@ -116,15 +116,6 @@ RUN mvn install:install-file \
     -Dpackaging=jar \
     --no-transfer-progress
 
-# Install RocksDB JNI jar to local Maven repo
-RUN mvn install:install-file \
-    -Dfile=/tmp/rocksdbjni.jar \
-    -DgroupId=org.rocksdb \
-    -DartifactId=rocksdbjni \
-    -Dversion=11.2.0 \
-    -Dpackaging=jar \
-    --no-transfer-progress
-
 # --- Build the full project ---
 ENV MAVEN_CONFIG=""
 ENV MAVEN_OPTS=""
