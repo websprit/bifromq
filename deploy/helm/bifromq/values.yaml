@@ -3,14 +3,13 @@ replicaCount: 1
 
 image:
   # -- Docker image repository
-  repository: apache/bifromq
+  repository: ghcr.io/websprit/bifromq
   # -- Docker image tag (defaults to Chart appVersion)
-  tag: "quic-test-amd64"
+  tag: feature-perf-optimization
   # -- Image pull policy
-  pullPolicy: IfNotPresent
-
-# -- Image pull secrets for private registries
-imagePullSecrets: []
+  pullPolicy: Always
+  # -- Image pull secrets for private registries
+  imagePullSecrets: []
 
 # -- Override the chart name
 nameOverride: ""
@@ -168,9 +167,11 @@ affinity: {}
 # Extra environment variables
 # ============================================================
 # -- Additional environment variables for the BifroMQ container
-extraEnv: []
-#  - name: MY_VAR
-#    value: "my-value"
+extraEnv:
+  - name: TZ
+    value: "Asia/Shanghai"
+  - name: METRICS_HTTP_PORT
+    value: "9090"
 
 # ============================================================
 # BifroMQ Plugin Configuration

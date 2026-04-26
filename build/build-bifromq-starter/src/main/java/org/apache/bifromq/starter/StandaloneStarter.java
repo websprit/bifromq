@@ -26,6 +26,7 @@ import static org.apache.bifromq.starter.utils.ConfigFileUtil.serialize;
 import com.google.common.base.Strings;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.binder.jvm.ClassLoaderMetrics;
@@ -38,9 +39,13 @@ import io.micrometer.core.instrument.binder.jvm.JvmThreadMetrics;
 import io.micrometer.core.instrument.binder.netty4.NettyAllocatorMetrics;
 import io.micrometer.core.instrument.binder.system.ProcessorMetrics;
 import io.micrometer.core.instrument.binder.system.UptimeMetrics;
+import io.micrometer.prometheus.PrometheusConfig;
+import io.micrometer.prometheus.PrometheusMeterRegistry;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.reactivex.rxjava3.plugins.RxJavaPlugins;
 import java.io.File;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
 import java.net.InetSocketAddress;
 import java.time.Duration;
@@ -163,6 +168,8 @@ public class StandaloneStarter {
                 config.getMetricsTags().forEach(Metrics.globalRegistry.config()::commonTags);
             }
 
+            startPrometheusExporter();
+
             Injector serviceInjector = Guice.createInjector(
                 new ConfigModule(config),
                 new RPCClientSSLContextModule(),
@@ -194,6 +201,31 @@ public class StandaloneStarter {
             log.error("Failed to start BifroMQ", e);
             formatter.printHelp("CMD", CLI_OPTIONS);
             System.exit(-1);
+        }
+    }
+
+    private static void startPrometheusExporter() {
+        String portStr = System.getenv("METRICS_HTTP_PORT");
+        if (portStr == null || portStr.isBlank()) {
+            return;
+        }
+        try {
+            int port = Integer.parseUnsignedInt(portStr);
+            PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+            Metrics.globalRegistry.add(registry);
+            HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+            server.createContext("/metrics", exchange -> {
+                String response = registry.scrape();
+                exchange.getResponseHeaders().set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+                exchange.sendResponseHeaders(200, response.getBytes().length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(response.getBytes());
+                }
+            });
+            server.start();
+            log.info("Prometheus metrics exporter started on port {}", port);
+        } catch (IOException e) {
+            log.error("Failed to start Prometheus metrics exporter", e);
         }
     }
 
