@@ -19,16 +19,15 @@
 # Cross-Platform Docker Build for BifroMQ (linux/amd64 + linux/arm64)
 # ========================================================================
 #
-# This Dockerfile builds a complete BifroMQ release image from source,
-# including:
-#   1. Rust native libraries (bifromq-native) via cargo
-#   2. RocksDB JNI (with custom write_batch.cc modifications) via make
-#   3. Full Java project via Maven
-#
-# Multi-stage design with optimized layer caching:
+# Multi-stage design:
 #   Stage 1 (native-builder): Compile Rust + RocksDB C++ native code
-#   Stage 2 (java-builder):   Resolve deps first (cached), then compile
+#   Stage 2 (java-builder):   Compile Java, package release tarball
 #   Stage 3 (runtime):       Minimal JRE image for k8s deployment
+#
+# Optimizations:
+#   - Rust and RocksDB are built once per platform in Stage 1
+#   - Maven .m2 cache is mounted from CI for dependency resolution
+#   - Dependency resolution and compilation are in separate RUN layers
 # ========================================================================
 
 # =============================================================================
@@ -58,7 +57,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Build RocksDB JNI ---
-# COPY only rocksdb sources first for layer cache (large, slow to compile)
 COPY third-party/rocksdb/ /build/third-party/rocksdb/
 RUN export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which javac)))) \
     && cd /build/third-party/rocksdb \
@@ -73,118 +71,22 @@ RUN cd /build/bifromq-native \
     && cargo build --release
 
 # =============================================================================
-# Stage 2: Java Build (with dependency caching)
+# Stage 2: Java Build
 # =============================================================================
 FROM maven:4.0.0-rc-5-eclipse-temurin-25 AS java-builder
 
 WORKDIR /build
 
-# Optional: copy local Maven cache to speed up dependency resolution
-COPY m2-cache /root/.m2
-
 ARG TARGETARCH
 
-# --- Step 2a: Resolve Maven dependencies (cached layer) ---
-# Copy only POM files first. When source code changes but deps don't,
-# this expensive layer is reused from cache.
-COPY pom.xml /build/pom.xml
-COPY bifromq-bom/pom.xml /build/bifromq-bom/pom.xml
-COPY bifromq-dist/pom.xml /build/bifromq-dist/pom.xml
-COPY bifromq-dist/bifromq-dist-rpc-definition/pom.xml /build/bifromq-dist/bifromq-dist-rpc-definition/pom.xml
-COPY bifromq-dist/bifromq-dist-client/pom.xml /build/bifromq-dist/bifromq-dist-client/pom.xml
-COPY bifromq-dist/bifromq-dist-worker-spi/pom.xml /build/bifromq-dist/bifromq-dist-worker-spi/pom.xml
-COPY bifromq-dist/bifromq-dist-worker/pom.xml /build/bifromq-dist/bifromq-dist-worker/pom.xml
-COPY bifromq-dist/bifromq-dist-server/pom.xml /build/bifromq-dist/bifromq-dist-server/pom.xml
-COPY bifromq-inbox/pom.xml /build/bifromq-inbox/pom.xml
-COPY bifromq-inbox/bifromq-inbox-rpc-definition/pom.xml /build/bifromq-inbox/bifromq-inbox-rpc-definition/pom.xml
-COPY bifromq-inbox/bifromq-inbox-client/pom.xml /build/bifromq-inbox/bifromq-inbox-client/pom.xml
-COPY bifromq-inbox/bifromq-inbox-store-schema/pom.xml /build/bifromq-inbox/bifromq-inbox-store-schema/pom.xml
-COPY bifromq-inbox/bifromq-inbox-store-spi/pom.xml /build/bifromq-inbox/bifromq-inbox-store-spi/pom.xml
-COPY bifromq-inbox/bifromq-inbox-store/pom.xml /build/bifromq-inbox/bifromq-inbox-store/pom.xml
-COPY bifromq-inbox/bifromq-inbox-server/pom.xml /build/bifromq-inbox/bifromq-inbox-server/pom.xml
-COPY bifromq-retain/pom.xml /build/bifromq-retain/pom.xml
-COPY bifromq-retain/bifromq-retain-rpc-definition/pom.xml /build/bifromq-retain/bifromq-retain-rpc-definition/pom.xml
-COPY bifromq-retain/bifromq-retain-client/pom.xml /build/bifromq-retain/bifromq-retain-client/pom.xml
-COPY bifromq-retain/bifromq-retain-gc/pom.xml /build/bifromq-retain/bifromq-retain-gc/pom.xml
-COPY bifromq-retain/bifromq-retain-store-schema/pom.xml /build/bifromq-retain/bifromq-retain-store-schema/pom.xml
-COPY bifromq-retain/bifromq-retain-store-spi/pom.xml /build/bifromq-retain/bifromq-retain-store-spi/pom.xml
-COPY bifromq-retain/bifromq-retain-store/pom.xml /build/bifromq-retain/bifromq-retain-store/pom.xml
-COPY bifromq-retain/bifromq-retain-server/pom.xml /build/bifromq-retain/bifromq-retain-server/pom.xml
-COPY bifromq-session-dict/pom.xml /build/bifromq-session-dict/pom.xml
-COPY bifromq-session-dict/bifromq-session-dict-rpc-definition/pom.xml /build/bifromq-session-dict/bifromq-session-dict-rpc-definition/pom.xml
-COPY bifromq-session-dict/bifromq-session-dict-client/pom.xml /build/bifromq-session-dict/bifromq-session-dict-client/pom.xml
-COPY bifromq-session-dict/bifromq-session-dict-server/pom.xml /build/bifromq-session-dict/bifromq-session-dict-server/pom.xml
-COPY bifromq-deliverer/pom.xml /build/bifromq-deliverer/pom.xml
-COPY bifromq-mqtt/pom.xml /build/bifromq-mqtt/pom.xml
-COPY bifromq-mqtt/bifromq-mqtt-broker-rpc-definition/pom.xml /build/bifromq-mqtt/bifromq-mqtt-broker-rpc-definition/pom.xml
-COPY bifromq-mqtt/bifromq-mqtt-broker-client/pom.xml /build/bifromq-mqtt/bifromq-mqtt-broker-client/pom.xml
-COPY bifromq-mqtt/bifromq-mqtt-server-spi/pom.xml /build/bifromq-mqtt/bifromq-mqtt-server-spi/pom.xml
-COPY bifromq-mqtt/bifromq-mqtt-server/pom.xml /build/bifromq-mqtt/bifromq-mqtt-server/pom.xml
-COPY bifromq-apiserver/pom.xml /build/bifromq-apiserver/pom.xml
-COPY bifromq-metrics/pom.xml /build/bifromq-metrics/pom.xml
-COPY bifromq-plugin/pom.xml /build/bifromq-plugin/pom.xml
-COPY bifromq-plugin/bifromq-plugin-main/pom.xml /build/bifromq-plugin/bifromq-plugin-main/pom.xml
-COPY bifromq-plugin/bifromq-plugin-setting-provider-helper/pom.xml /build/bifromq-plugin/bifromq-plugin-setting-provider-helper/pom.xml
-COPY bifromq-plugin/bifromq-plugin-eventcollector-helper/pom.xml /build/bifromq-plugin/bifromq-plugin-eventcollector-helper/pom.xml
-COPY bifromq-plugin/bifromq-plugin-resourcethrottler-helper/pom.xml /build/bifromq-plugin/bifromq-plugin-resourcethrottler-helper/pom.xml
-COPY bifromq-plugin/bifromq-plugin-sub-broker-helper/pom.xml /build/bifromq-plugin/bifromq-plugin-sub-broker-helper/pom.xml
-COPY bifromq-plugin/bifromq-plugin-auth-helper/pom.xml /build/bifromq-plugin/bifromq-plugin-auth-helper/pom.xml
-COPY bifromq-plugin/bifromq-plugin-client-balancer-helper/pom.xml /build/bifromq-plugin/bifromq-plugin-client-balancer-helper/pom.xml
-COPY bifromq-plugin/bifromq-plugin-bom/pom.xml /build/bifromq-plugin/bifromq-plugin-bom/pom.xml
-COPY base-kv/pom.xml /build/base-kv/pom.xml
-COPY base-kv/base-kv-store-coproc-api/pom.xml /build/base-kv/base-kv-store-coproc-api/pom.xml
-COPY base-kv/base-kv-raft-type/pom.xml /build/base-kv/base-kv-raft-type/pom.xml
-COPY base-kv/base-kv-raft/pom.xml /build/base-kv/base-kv-raft/pom.xml
-COPY base-kv/base-kv-store-server/pom.xml /build/base-kv/base-kv-store-server/pom.xml
-COPY base-kv/base-kv-store-client/pom.xml /build/base-kv/base-kv-store-client/pom.xml
-COPY base-kv/base-kv-local-engine-rocksdb/pom.xml /build/base-kv/base-kv-local-engine-rocksdb/pom.xml
-COPY base-kv/base-kv-local-engine-memory/pom.xml /build/base-kv/base-kv-local-engine-memory/pom.xml
-COPY base-kv/base-kv-meta-service/pom.xml /build/base-kv/base-kv-meta-service/pom.xml
-COPY base-kv/base-kv-proto/pom.xml /build/base-kv/base-kv-proto/pom.xml
-COPY base-cluster/pom.xml /build/base-cluster/pom.xml
-COPY base-crdt/pom.xml /build/base-crdt/pom.xml
-COPY base-crdt/base-crdt-proto/pom.xml /build/base-crdt/base-crdt-proto/pom.xml
-COPY base-crdt/base-crdt-store/pom.xml /build/base-crdt/base-crdt-store/pom.xml
-COPY base-hlc/pom.xml /build/base-hlc/pom.xml
-COPY base-rpc/pom.xml /build/base-rpc/pom.xml
-COPY base-rpc/base-rpc-proto/pom.xml /build/base-rpc/base-rpc-proto/pom.xml
-COPY base-rpc/base-rpc-client/pom.xml /build/base-rpc/base-rpc-client/pom.xml
-COPY base-rpc/base-rpc-server/pom.xml /build/base-rpc/base-rpc-server/pom.xml
-COPY base-scheduler/pom.xml /build/base-scheduler/pom.xml
-COPY base-env/pom.xml /build/base-env/pom.xml
-COPY bifromq-native/pom.xml /build/bifromq-native/pom.xml
-COPY bifromq-native/bifromq-native-binding/pom.xml /build/bifromq-native/bifromq-native-binding/pom.xml
-COPY build/pom.xml /build/build/pom.xml
-COPY build/build-plugin-demo/pom.xml /build/build-plugin-demo/pom.xml
-COPY build/build-bifromq-starter/pom.xml /build/build-bifromq-starter/pom.xml
-COPY testsuites/pom.xml /build/testsuites/pom.xml
-COPY third-party/rocksdb/java/pom.xml /build/third-party/rocksdb/java/pom.xml
+# Optional: copy local Maven cache (populated by CI) to speed up dependency resolution
+COPY m2-cache /root/.m2
 
-# Install RocksDB JNI jar first (from Stage 1)
-COPY --from=native-builder \
-    /build/third-party/rocksdb/java/target/rocksdbjni-*.jar \
-    /tmp/rocksdbjni.jar
-RUN mvn install:install-file \
-    -Dfile=/tmp/rocksdbjni.jar \
-    -DgroupId=org.rocksdb \
-    -DartifactId=rocksdbjni \
-    -Dversion=11.2.0 \
-    -Dpackaging=jar \
-    --no-transfer-progress
-
-# Resolve all Maven dependencies (this layer is cached when pom.xml files don't change)
-ENV MAVEN_CONFIG=""
-ENV MAVEN_OPTS=""
-RUN ./mvnw dependency:go-offline -Pbuild-release \
-        -Drat.skip=true \
-        -Dcheckstyle.skip=true \
-        --no-transfer-progress \
-    || true
-
-# --- Step 2b: Copy full source and native artifacts, then build ---
+# Copy full project source
 COPY . /build
 
-# Inject Rust native library
+# --- Inject native artifacts from Stage 1 ---
+# Rust native library
 COPY --from=native-builder \
     /build/bifromq-native/target/release/libbifromq_native.so \
     /tmp/libbifromq_native.so
@@ -194,19 +96,27 @@ RUN nativeDir="linux-x86_64"; \
     && cp /tmp/libbifromq_native.so \
         "/build/bifromq-native-binding/src/main/resources/native/${nativeDir}/libbifromq_native.so"
 
-# Inject RocksDB .so into target (before mvn clean)
+# RocksDB JNI .so and jar
+COPY --from=native-builder \
+    /build/third-party/rocksdb/java/target/ /tmp/rocksdb-java-target/
 RUN rocksdbSo="librocksdbjni-linux64.so"; \
     [ "$TARGETARCH" = "arm64" ] && rocksdbSo="librocksdbjni-linux-aarch64.so"; \
     mkdir -p "/build/third-party/rocksdb/java/target" \
-    && if [ -f "/tmp/rocksdb-java-target/${rocksdbSo}" ]; then \
-         cp "/tmp/rocksdb-java-target/${rocksdbSo}" "/build/third-party/rocksdb/java/target/"; \
-       elif [ -f "/build/third-party/rocksdb/java/target/${rocksdbSo}" ]; then \
-         echo "RocksDB .so already in place from COPY"; \
-       else \
-         echo "WARNING: RocksDB .so not found: ${rocksdbSo}"; \
-       fi
+    && cp "/tmp/rocksdb-java-target/${rocksdbSo}" \
+        "/build/third-party/rocksdb/java/target/"
 
-# Build the full project (dependencies already resolved, this is fast)
+# Install RocksDB JNI jar to local Maven repo
+RUN mvn install:install-file \
+    -Dfile=/tmp/rocksdbjni.jar \
+    -DgroupId=org.rocksdb \
+    -DartifactId=rocksdbjni \
+    -Dversion=11.2.0 \
+    -Dpackaging=jar \
+    --no-transfer-progress
+
+# --- Build the full project ---
+ENV MAVEN_CONFIG=""
+ENV MAVEN_OPTS=""
 RUN ./mvnw clean verify -DskipTests \
         -Drat.skip=true \
         -Dcheckstyle.skip=true \
