@@ -20,6 +20,7 @@
 package org.apache.bifromq.plugin;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InaccessibleObjectException;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -80,7 +81,13 @@ public abstract class BifroMQPlugin<C extends BifroMQPluginContext> extends Plug
                     log.warn("PluginContext's constructor should be public, visibility is {}: {}",
                         Modifier.isProtected(modifiers) ? "protected" : "package-private", constructor.getName());
                 }
-                constructor.setAccessible(true); // Allow protected and package-private access
+                try {
+                    constructor.setAccessible(true); // Allow protected and package-private access
+                } catch (InaccessibleObjectException e) {
+                    throw new IllegalStateException(
+                        "Cannot access constructor " + constructor.getName()
+                            + ". Make the constructor public or open the module with --add-opens", e);
+                }
                 return constructor.newInstance(descriptor);
             }
         }

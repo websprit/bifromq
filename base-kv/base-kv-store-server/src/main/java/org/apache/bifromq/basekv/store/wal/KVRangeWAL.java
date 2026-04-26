@@ -169,7 +169,7 @@ public class KVRangeWAL implements IKVRangeWAL, IRaftNode.ISnapshotInstaller {
                         return CompletableFuture.failedFuture(new KVRangeException("Canceled once"));
                     }
                 }, executor, tags);
-        onDone.exceptionally(e -> null).thenComposeAsync(v -> walSub.stop(), executor);
+        onDone.whenCompleteAsync((v, e) -> walSub.stop(), executor);
         return onDone;
     }
 

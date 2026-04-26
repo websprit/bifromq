@@ -435,12 +435,12 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        super.exceptionCaught(ctx, cause);
         log.debug("ctx: {}, cause:", ctx, cause);
         cancelStallTask();
         // if disconnection is caused purely by channel error
         handleProtocolResponse(
                 ProtocolResponse.goAwayNow(getLocal(ClientChannelError.class).clientInfo(clientInfo).cause(cause)));
+        super.exceptionCaught(ctx, cause);
     }
 
     @Override

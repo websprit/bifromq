@@ -23,6 +23,7 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.handler.codec.mqtt.MqttDecoder;
 import io.netty.handler.codec.mqtt.MqttEncoder;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
+import io.netty.incubator.codec.quic.QuicStreamType;
 import io.netty.util.AttributeKey;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.mqtt.handler.ChannelAttrs;
@@ -83,6 +84,12 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
     protected void initChannel(QuicStreamChannel ch) {
         log.info("QUIC stream init start: streamId={}, type={}, parent={}, local={}, remote={}",
             ch.streamId(), ch.type(), ch.parent(), ch.localAddress(), ch.remoteAddress());
+        // Only bidirectional streams carry MQTT; close unidirectional streams
+        if (ch.type() != QuicStreamType.BIDIRECTIONAL) {
+            log.debug("Closing unidirectional QUIC stream: streamId={}", ch.streamId());
+            ch.close();
+            return;
+        }
         // Propagate session context from parent QuicChannel (fixes #1)
         MQTTSessionContext sessionCtx = ch.parent().attr(ChannelAttrs.MQTT_SESSION_CTX).get();
         if (sessionCtx == null) {

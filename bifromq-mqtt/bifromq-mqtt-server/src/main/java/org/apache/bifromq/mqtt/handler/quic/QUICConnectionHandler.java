@@ -127,6 +127,11 @@ public class QUICConnectionHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        QuicChannel quicChannel = (QuicChannel) ctx.channel();
+        QUICStreamRouter router = quicChannel.attr(QUIC_STREAM_ROUTER).getAndSet(null);
+        if (router != null) {
+            router.clear();
+        }
         log.info("QUIC connection closed: remoteAddress={}, localAddress={}",
             ctx.channel().remoteAddress(), ctx.channel().localAddress());
         super.channelInactive(ctx);

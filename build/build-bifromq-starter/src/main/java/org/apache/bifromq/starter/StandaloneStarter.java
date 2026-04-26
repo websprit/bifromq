@@ -204,6 +204,8 @@ public class StandaloneStarter {
         }
     }
 
+    private static HttpServer metricsServer;
+
     private static void startPrometheusExporter() {
         String portStr = System.getenv("METRICS_HTTP_PORT");
         if (portStr == null || portStr.isBlank()) {
@@ -211,18 +213,23 @@ public class StandaloneStarter {
         }
         try {
             int port = Integer.parseUnsignedInt(portStr);
+            if (port == 0 || port > 65535) {
+                log.error("Invalid METRICS_HTTP_PORT: {}, must be between 1 and 65535", port);
+                return;
+            }
             PrometheusMeterRegistry registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
             Metrics.globalRegistry.add(registry);
-            HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
-            server.createContext("/metrics", exchange -> {
+            metricsServer = HttpServer.create(new InetSocketAddress(port), 0);
+            metricsServer.createContext("/metrics", exchange -> {
                 String response = registry.scrape();
+                byte[] responseBytes = response.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-                exchange.sendResponseHeaders(200, response.getBytes().length);
+                exchange.sendResponseHeaders(200, responseBytes.length);
                 try (OutputStream os = exchange.getResponseBody()) {
-                    os.write(response.getBytes());
+                    os.write(responseBytes);
                 }
             });
-            server.start();
+            metricsServer.start();
             log.info("Prometheus metrics exporter started on port {}", port);
         } catch (IOException e) {
             log.error("Failed to start Prometheus metrics exporter", e);
@@ -231,6 +238,9 @@ public class StandaloneStarter {
 
     void start() {
         startSystemMetrics();
+        if (metricsServer != null) {
+            closeables.add(() -> metricsServer.stop(0));
+        }
         join();
         bootstrappedServices.start();
         log.info("Standalone broker started");

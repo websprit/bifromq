@@ -44,6 +44,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.localengine.KVEngineException;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -53,6 +54,7 @@ import org.rocksdb.Range;
 import org.rocksdb.RocksDB;
 import org.rocksdb.Slice;
 
+@Slf4j
 class RocksDBHelper {
     static RocksDBHandle openDBInDir(File dir, DBOptions dbOptions, ColumnFamilyDescriptor cfDesc) {
         try {
@@ -70,13 +72,15 @@ class RocksDBHelper {
         if (!path.toFile().exists()) {
             return;
         }
+        List<Path> failedDeletes = new ArrayList<>();
         Files.walkFileTree(path, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                 try {
                     Files.delete(file);
                 } catch (IOException e) {
-                    // do nothing
+                    log.warn("Failed to delete file {}: {}", file, e.getMessage());
+                    failedDeletes.add(file);
                 }
                 return FileVisitResult.CONTINUE;
             }
@@ -86,11 +90,16 @@ class RocksDBHelper {
                 try {
                     Files.delete(dir);
                 } catch (IOException e) {
-                    // do nothing
+                    log.warn("Failed to delete directory {}: {}", dir, e.getMessage());
+                    failedDeletes.add(dir);
                 }
                 return FileVisitResult.CONTINUE;
             }
         });
+        if (!failedDeletes.isEmpty()) {
+            throw new IOException("Failed to delete " + failedDeletes.size() + " items under " + path
+                + ", first: " + failedDeletes.get(0));
+        }
     }
 
     static long sizeOfBoundary(IRocksDBKVSpaceEpoch dbHandle, Boundary boundary) {

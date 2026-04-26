@@ -1,16 +1,15 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: bifromq-metrics
-  namespace: bifromq
+  name: {{ include "bifromq.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
   labels:
-    app: bifromq
-    release: kube-prometheus-stack
+    {{- include "bifromq.labels" . | nindent 4 }}
+    release: {{ .Release.Name }}
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: bifromq
-      app.kubernetes.io/instance: bifromq
+      {{- include "bifromq.selectorLabels" . | nindent 6 }}
   endpoints:
     - port: metrics
       path: /metrics
@@ -18,4 +17,4 @@ spec:
       scrapeTimeout: 10s
   namespaceSelector:
     matchNames:
-      - bifromq
+      - {{ .Release.Namespace }}

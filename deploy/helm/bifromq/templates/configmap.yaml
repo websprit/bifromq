@@ -38,6 +38,19 @@ data:
           port: {{ .Values.mqtt.wsPort }}
           wsPath: {{ .Values.mqtt.wsPath | quote }}
         {{- end }}
+        {{- if .Values.mqtt.wssEnabled }}
+        wssListener:
+          enable: true
+          port: {{ .Values.mqtt.wssPort }}
+          wssPath: {{ .Values.mqtt.wssPath | quote }}
+          {{- if .Values.tls.certSecretName }}
+          sslConfig:
+            certFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.certFile }}"
+            keyFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.keyFile }}"
+            trustCertsFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.trustCertsFile }}"
+            clientAuth: {{ .Values.tls.clientAuth }}
+          {{- end }}
+        {{- end }}
         {{- if .Values.mqtt.quicEnabled }}
         quicListener:
           enable: true

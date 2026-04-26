@@ -29,6 +29,12 @@ spec:
       targetPort: mqtt-ws
       protocol: TCP
     {{- end }}
+    {{- if .Values.mqtt.wssEnabled }}
+    - name: mqtt-wss
+      port: {{ .Values.mqtt.wssPort }}
+      targetPort: mqtt-wss
+      protocol: TCP
+    {{- end }}
     {{- if .Values.apiServer.enabled }}
     - name: http-api
       port: {{ .Values.apiServer.port }}

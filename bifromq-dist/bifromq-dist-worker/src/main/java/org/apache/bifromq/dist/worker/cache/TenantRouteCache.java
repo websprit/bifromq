@@ -127,13 +127,16 @@ class TenantRouteCache implements ITenantRouteCache {
                                                                      Executor executor) {
                     int maxPersistentFanouts = settingProvider.provide(MaxPersistentFanout, tenantId);
                     int maxGroupFanouts = settingProvider.provide(MaxGroupFanout, tenantId);
-                    if (oldValue.adjust(maxPersistentFanouts, maxGroupFanouts)
-                        == IMatchedRoutes.AdjustResult.ReloadNeeded) {
+                    IMatchedRoutes.AdjustResult result = oldValue.adjust(maxPersistentFanouts, maxGroupFanouts);
+                    if (result == IMatchedRoutes.AdjustResult.ReloadNeeded) {
                         ReloadEntryTask task = ReloadEntryTask.of(key.topic, key, maxPersistentFanouts,
                             maxGroupFanouts);
                         submitCacheTask(task);
                         return task.future;
                     }
+                    // For Clamped/Adjusted: the in-place mutation is safe here because asyncReload
+                    // runs on matchExecutor (same as the task loop), so there's no concurrent
+                    // modification from AddRoutes/RemoveRoutes during this call.
                     return CompletableFuture.completedFuture(oldValue);
                 }
             });

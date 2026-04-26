@@ -64,9 +64,8 @@ public class CacheableSettingProvider implements ISettingProvider {
 
                 @Override
                 public @Nullable Object reload(String tenantId, Object oldValue) {
-                    // using provider to get the latest value
                     Object val = delegate.provide(setting, tenantId);
-                    return val == null ? oldValue : val;
+                    return val == null ? setting.initialValue() : val;
                 }
             };
         }
@@ -78,9 +77,8 @@ public class CacheableSettingProvider implements ISettingProvider {
 
             @Override
             public @Nullable Object reload(String tenantId, Object oldValue) {
-                // using provider to get the latest value
                 Object val = delegate.provide(setting, tenantId);
-                return val == null ? oldValue : val;
+                return val == null ? setting.initialValue() : val;
             }
         };
     }

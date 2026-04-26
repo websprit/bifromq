@@ -28,6 +28,7 @@ import static org.apache.bifromq.basekv.store.range.KVRangeKeys.METADATA_VER_BYT
 import com.github.benmanes.caffeine.cache.Cache;
 import com.google.protobuf.ByteString;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basekv.localengine.IKVSpaceRefreshableReader;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.State;
@@ -40,6 +41,7 @@ import org.apache.bifromq.basekv.store.util.KVUtil;
  * A IKVRangeRefreshableReader implementation that caches get/exist results for hot keys.
  * Cache entries expire after a short TTL and are invalidated on write.
  */
+@Slf4j
 class CachingKVRangeReader implements IKVRangeRefreshableReader {
     private final IKVSpaceRefreshableReader kvSpaceReader;
     private final Cache<ByteString, Optional<ByteString>> readCache;
@@ -62,6 +64,7 @@ class CachingKVRangeReader implements IKVRangeRefreshableReader {
                 try {
                     return State.parseFrom(stateBytes);
                 } catch (Throwable e) {
+                    log.warn("Failed to parse KVRange state from metadata", e);
                     return State.newBuilder().setType(State.StateType.NoUse).build();
                 }
             })
@@ -80,6 +83,7 @@ class CachingKVRangeReader implements IKVRangeRefreshableReader {
                 try {
                     return Boundary.parseFrom(boundaryBytes);
                 } catch (Throwable e) {
+                    log.warn("Failed to parse KVRange boundary from metadata", e);
                     return Boundary.getDefaultInstance();
                 }
             })
@@ -93,6 +97,7 @@ class CachingKVRangeReader implements IKVRangeRefreshableReader {
                 try {
                     return ClusterConfig.parseFrom(clusterConfigBytes);
                 } catch (Throwable e) {
+                    log.warn("Failed to parse KVRange cluster config from metadata", e);
                     return ClusterConfig.getDefaultInstance();
                 }
             })

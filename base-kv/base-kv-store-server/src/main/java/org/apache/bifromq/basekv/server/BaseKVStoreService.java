@@ -148,8 +148,7 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
                 .setReqId(request.getReqId())
                 .setResult(e instanceof KVRangeStoreException
                     ? RecoverReply.Result.NotFound : RecoverReply.Result.Error)
-                .build())
-            .handle((v, e) -> RecoverReply.newBuilder().setReqId(request.getReqId()).build()), responseObserver);
+                .build()), responseObserver);
     }
 
     @Override
@@ -164,8 +163,7 @@ class BaseKVStoreService extends BaseKVStoreServiceGrpc.BaseKVStoreServiceImplBa
                 .setReqId(request.getReqId())
                 .setResult(e instanceof KVRangeStoreException
                     ? ZombieQuitReply.Result.NotFound : ZombieQuitReply.Result.Error)
-                .build())
-            .handle((v, e) -> ZombieQuitReply.newBuilder().setReqId(request.getReqId()).build()), responseObserver);
+                .build()), responseObserver);
     }
 
     @Override

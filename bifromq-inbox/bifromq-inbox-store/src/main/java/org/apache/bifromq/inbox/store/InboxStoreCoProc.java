@@ -2039,7 +2039,14 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
     }
 
     private IInboxMetaCache.InboxMetadataProvider inboxMetadataProvider(IKVRangeReader reader) {
-        return (tenantId, inboxId, incarnation) -> getInboxVersion(tenantId, inboxId, incarnation, reader);
+        return (tenantId, inboxId, incarnation) -> {
+            InboxMetadata metadata = getInboxVersion(tenantId, inboxId, incarnation, reader);
+            if (metadata == null) {
+                throw new IllegalStateException("Inbox metadata not found for " + tenantId + "/" + inboxId
+                    + "/incarnation=" + incarnation);
+            }
+            return metadata;
+        };
     }
 
     private InboxMetadata getInboxVersion(String tenantId, String inboxId, long incarnation, IKVRangeReader reader) {
@@ -2051,7 +2058,7 @@ final class InboxStoreCoProc implements IKVRangeCoProc {
         try {
             return InboxMetadata.parseFrom(metaBytes.get());
         } catch (InvalidProtocolBufferException e) {
-            log.error("Unexpected error", e);
+            log.error("Failed to parse inbox metadata for {}/{}/incarnation={}", tenantId, inboxId, incarnation, e);
             return null;
         }
     }

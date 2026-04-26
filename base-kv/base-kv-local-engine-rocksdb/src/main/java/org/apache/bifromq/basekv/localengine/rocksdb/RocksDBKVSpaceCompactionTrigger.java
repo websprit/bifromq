@@ -80,7 +80,6 @@ class RocksDBKVSpaceCompactionTrigger implements IWriteStatsRecorder {
 
         public void recordPut() {
             keyCount.incrementAndGet();
-            tombstoneKeyCount.incrementAndGet();
         }
 
         public void recordInsert() {

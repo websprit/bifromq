@@ -820,6 +820,7 @@ public class KVRangeFSM implements IKVRangeFSM {
                         }
                     });
                 } catch (Throwable t) {
+                    rangeWriter.abort();
                     rangeReader.close();
                     log.error("Failed to apply log: {}", log, t);
                     onDone.completeExceptionally(t);

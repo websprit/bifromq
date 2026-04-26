@@ -44,6 +44,7 @@ public final class RequestHandlersFactory implements IHTTPRequestHandlersFactory
                                   IInboxClient inboxClient,
                                   IRetainClient retainClient,
                                   ISettingProvider settingProvider) {
+        register(new HealthHandler());
         register(new ListAllStoreHandler(metaService));
         register(new GetStoreLandscapeHandler(metaService, trafficService));
         register(new GetStoreRangesHandler(metaService));

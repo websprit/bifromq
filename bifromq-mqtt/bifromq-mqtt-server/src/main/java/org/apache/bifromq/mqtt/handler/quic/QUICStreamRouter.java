@@ -24,6 +24,7 @@ import io.netty.incubator.codec.quic.QuicStreamChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -48,7 +49,7 @@ public class QUICStreamRouter {
     private final QuicChannel quicConnection;
     private final int dataStreamCount;
     private volatile QuicStreamChannel controlStream;
-    private final QuicStreamChannel[] dataStreams;
+    private final AtomicReferenceArray<QuicStreamChannel> dataStreams;
     private final Map<Integer, Integer> packetIdToStreamIndex = new ConcurrentHashMap<>();
 
     public QUICStreamRouter(QuicChannel quicConnection) {
@@ -58,7 +59,7 @@ public class QUICStreamRouter {
     public QUICStreamRouter(QuicChannel quicConnection, int dataStreamCount) {
         this.quicConnection = quicConnection;
         this.dataStreamCount = dataStreamCount;
-        this.dataStreams = new QuicStreamChannel[dataStreamCount];
+        this.dataStreams = new AtomicReferenceArray<>(dataStreamCount);
     }
 
     /**
@@ -85,7 +86,7 @@ public class QUICStreamRouter {
      */
     public QuicStreamChannel resolveStream(String topic) {
         int bucket = Math.abs(murmur3_x86_32(topic) % dataStreamCount);
-        return dataStreams[bucket];
+        return dataStreams.get(bucket);
     }
 
     /**
@@ -105,14 +106,14 @@ public class QUICStreamRouter {
         if (index < 0 || index >= dataStreamCount) {
             throw new IllegalArgumentException("Stream index out of range: " + index);
         }
-        this.dataStreams[index] = stream;
+        this.dataStreams.set(index, stream);
     }
 
     /**
      * Gets the data stream at the specified index.
      */
     public QuicStreamChannel getDataStream(int index) {
-        return dataStreams[index];
+        return dataStreams.get(index);
     }
 
     /**
@@ -134,7 +135,7 @@ public class QUICStreamRouter {
     public QuicStreamChannel resolveByPacketId(int packetId) {
         Integer index = packetIdToStreamIndex.get(packetId);
         if (index != null && index >= 0 && index < dataStreamCount) {
-            QuicStreamChannel stream = dataStreams[index];
+            QuicStreamChannel stream = dataStreams.get(index);
             if (stream != null) {
                 return stream;
             }
@@ -164,12 +165,24 @@ public class QUICStreamRouter {
         if (controlStream == null) {
             return false;
         }
-        for (QuicStreamChannel stream : dataStreams) {
-            if (stream == null) {
+        for (int i = 0; i < dataStreamCount; i++) {
+            if (dataStreams.get(i) == null) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Clears all stream references and packet mappings.
+     * Called when the QUIC connection is closed to prevent stale references.
+     */
+    public void clear() {
+        controlStream = null;
+        for (int i = 0; i < dataStreamCount; i++) {
+            dataStreams.set(i, null);
+        }
+        packetIdToStreamIndex.clear();
     }
 
     // MurmurHash3_x86_32: uniform hash to avoid topic hash skew with String.hashCode()

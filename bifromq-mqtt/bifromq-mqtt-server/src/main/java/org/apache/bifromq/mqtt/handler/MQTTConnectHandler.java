@@ -41,6 +41,7 @@ import io.netty.handler.codec.mqtt.MqttConnectMessage;
 import io.netty.handler.codec.mqtt.MqttDecoder;
 import io.netty.handler.codec.mqtt.MqttMessage;
 import io.netty.handler.codec.mqtt.MqttMessageType;
+import io.netty.util.ReferenceCountUtil;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
@@ -111,7 +112,10 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
 
     @Override
     public final void channelRead(ChannelHandlerContext ctx, Object msg) {
-        MqttMessage mqttMessage = (MqttMessage) msg;
+        if (!(msg instanceof MqttMessage mqttMessage)) {
+            ReferenceCountUtil.release(msg);
+            return;
+        }
         log.trace("Received {}", mqttMessage);
         if (mqttMessage.fixedHeader().messageType() == MqttMessageType.CONNECT) {
             MqttConnectMessage connMsg = (MqttConnectMessage) msg;
@@ -462,19 +466,19 @@ public abstract class MQTTConnectHandler extends ChannelDuplexHandler {
                                     }, ctx.executor());
                         }
                         case TRY_LATER -> {
-                            log.error("[DEBUG] inboxClient.exist() returned TRY_LATER for clientId={}, tenantId={}",
+                            log.debug("inboxClient.exist() returned TRY_LATER for clientId={}, tenantId={}",
                                     requestClientId, clientInfo.getTenantId());
                             handleGoAway(onInboxCallError(clientInfo, "Inbox service call[exist] needs retry"));
                             return CompletableFuture.completedFuture(ExpireResult.ERROR);
                         }
                         case BACK_PRESSURE_REJECTED -> {
-                            log.error("[DEBUG] inboxClient.exist() returned BACK_PRESSURE_REJECTED for clientId={}, tenantId={}",
+                            log.debug("inboxClient.exist() returned BACK_PRESSURE_REJECTED for clientId={}, tenantId={}",
                                     requestClientId, clientInfo.getTenantId());
                             handleGoAway(onInboxCallError(clientInfo, "Inbox service call[exist] needs busy"));
                             return CompletableFuture.completedFuture(ExpireResult.ERROR);
                         }
                         default -> {
-                            log.error("[DEBUG] inboxClient.exist() returned unexpected code={} for clientId={}, tenantId={}",
+                            log.warn("inboxClient.exist() returned unexpected code={} for clientId={}, tenantId={}",
                                     existReply.getCode(), requestClientId, clientInfo.getTenantId());
                             handleGoAway(onInboxCallError(clientInfo, "Inbox service call[exist] error"));
                             return CompletableFuture.completedFuture(ExpireResult.ERROR);

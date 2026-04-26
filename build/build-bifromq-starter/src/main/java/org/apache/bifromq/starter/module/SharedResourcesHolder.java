@@ -29,7 +29,7 @@ public class SharedResourcesHolder {
     private final Stack<Object> closeableResources = new Stack<>();
 
     public <T> T add(T resource) {
-        assert closeableResources instanceof AutoCloseable || closeableResources instanceof ExecutorService;
+        assert resource instanceof AutoCloseable || resource instanceof ExecutorService;
         closeableResources.add(resource);
         return resource;
     }

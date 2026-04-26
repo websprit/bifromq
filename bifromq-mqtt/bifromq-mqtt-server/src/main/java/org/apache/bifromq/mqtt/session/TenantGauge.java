@@ -25,6 +25,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import io.micrometer.core.instrument.Meter;
 import io.netty.util.concurrent.FastThreadLocal;
+import java.util.Collections;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,7 +35,7 @@ public class TenantGauge {
     private final TenantMetric metric;
     private final FastThreadLocal<LoadingCache<String, AtomicLong>> threadLocalTenantMemGauge;
 
-    private final Map<String, WeakHashMap<AtomicLong, Object>> tenantMemGauge = new ConcurrentHashMap<>();
+    private final Map<String, Map<AtomicLong, Object>> tenantMemGauge = new ConcurrentHashMap<>();
 
     public TenantGauge(TenantMetric gaugeMetric) {
         assert gaugeMetric.meterType == Meter.Type.GAUGE;
@@ -59,16 +60,19 @@ public class TenantGauge {
     private void register(String tenantId, AtomicLong gauge) {
         tenantMemGauge.compute(tenantId, (k, v) -> {
             if (v == null) {
-                WeakHashMap<AtomicLong, Object> threadLocalGauges = new WeakHashMap<>();
+                Map<AtomicLong, Object> threadLocalGauges =
+                    Collections.synchronizedMap(new WeakHashMap<>());
                 v = threadLocalGauges;
                 v.put(gauge, new Object());
                 ITenantMeter.gauging(k, metric, () -> {
-                    if (threadLocalGauges.isEmpty()) {
-                        tenantMemGauge.remove(k, threadLocalGauges);
-                        ITenantMeter.stopGauging(tenantId, metric);
-                        return 0;
-                    } else {
-                        return threadLocalGauges.keySet().stream().mapToLong(AtomicLong::get).sum();
+                    synchronized (threadLocalGauges) {
+                        if (threadLocalGauges.isEmpty()) {
+                            tenantMemGauge.remove(k, threadLocalGauges);
+                            ITenantMeter.stopGauging(tenantId, metric);
+                            return 0;
+                        } else {
+                            return threadLocalGauges.keySet().stream().mapToLong(AtomicLong::get).sum();
+                        }
                     }
                 });
             } else {

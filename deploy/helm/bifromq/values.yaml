@@ -8,8 +8,9 @@ image:
   tag: feature-perf-optimization
   # -- Image pull policy
   pullPolicy: Always
-  # -- Image pull secrets for private registries
-  imagePullSecrets: []
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
 
 # -- Override the chart name
 nameOverride: ""
@@ -57,6 +58,12 @@ mqtt:
   wsPort: 8080
   # -- WebSocket path
   wsPath: "/mqtt"
+  # -- Enable MQTT over WebSocket Secure (WSS)
+  wssEnabled: false
+  # -- MQTT WSS listener port
+  wssPort: 8443
+  # -- WSS path
+  wssPath: "/mqtt"
   # -- Enable MQTT over QUIC
   quicEnabled: true
   # -- MQTT QUIC listener port

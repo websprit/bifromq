@@ -202,9 +202,9 @@ public class MQTT3ConnectHandler extends MQTTConnectHandler {
                             }
                             // fallthrough
                             default -> {
-                                log.error("[DEBUG-AUTH] auth provider returned Reject.Error: reason={}, clientId={}",
+                                log.debug("auth provider returned Reject.Error: reason={}, clientId={}",
                                     authResult.getReject().getReason(), authData.getClientId());
-                                log.error("Unexpected error from auth provider:{}",
+                                log.warn("Unexpected error from auth provider:{}",
                                     authResult.getReject().getReason());
                                 return goAway(MqttMessageBuilders
                                         .connAck()
