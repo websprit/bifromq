@@ -127,7 +127,7 @@ jobs:
 
       # -----------------------------------------------------------------------
       # 6. Build (and push if applicable)
-      #    Platform locked to linux/amd64 for k8s deployment.
+      #    Platforms: linux/amd64 + linux/arm64 for multi-arch k8s deployment.
       #    Cache from/to GitHub Actions cache backend (gha) for fast rebuilds.
       # -----------------------------------------------------------------------
       - name: Build and push Docker image

@@ -16,7 +16,7 @@
 # under the License.
 
 # ========================================================================
-# Cross-Platform Docker Build for BifroMQ (linux/amd64)
+# Cross-Platform Docker Build for BifroMQ (linux/amd64 + linux/arm64)
 # ========================================================================
 #
 # This Dockerfile builds a complete BifroMQ release image from source,
@@ -94,20 +94,36 @@ COPY m2-cache /root/.m2
 COPY . /build
 
 # --- Inject native artifacts from Stage 1 ---
+# TARGETARCH is auto-provided by buildx when platforms is set
+ARG TARGETARCH
 
 # 1. Rust native library: bifromq-native-binding loads this from classpath
+#    NativeLoader.detectLibraryResourcePath() resolves the correct arch dir:
+#      Linux amd64 -> native/linux-x86_64/
+#      Linux arm64 -> native/linux-aarch_64/
 COPY --from=native-builder \
     /build/bifromq-native/target/release/libbifromq_native.so \
-    /build/bifromq-native-binding/src/main/resources/native/linux-x86_64/
+    /tmp/libbifromq_native.so
+RUN nativeDir="linux-x86_64"; \
+    [ "$TARGETARCH" = "arm64" ] && nativeDir="linux-aarch_64"; \
+    mkdir -p "/build/bifromq-native-binding/src/main/resources/native/${nativeDir}" \
+    && cp /tmp/libbifromq_native.so \
+        "/build/bifromq-native-binding/src/main/resources/native/${nativeDir}/libbifromq_native.so"
 
 # 2. RocksDB JNI native library: the third-party/rocksdb/java POM packages
 #    target/*.so into the JAR via its <resources> configuration. We place
 #    the .so here BEFORE mvn clean so that maven-clean-plugin's exclude
 #    rules (configured in third-party/rocksdb/java/pom.xml) keep it across
 #    the clean phase.
+#    make rocksdbjava produces different .so names per arch:
+#      librocksdbjni-linux64.so        (linux/amd64)
+#      librocksdbjni-linux-aarch64.so  (linux/arm64)
 COPY --from=native-builder \
-    /build/third-party/rocksdb/java/target/librocksdbjni-linux64.so \
-    /build/third-party/rocksdb/java/target/
+    /build/third-party/rocksdb/java/target/ /tmp/rocksdb-java-target/
+RUN rocksdbSo="librocksdbjni-linux64.so"; \
+    [ "$TARGETARCH" = "arm64" ] && rocksdbSo="librocksdbjni-linux-aarch64.so"; \
+    cp "/tmp/rocksdb-java-target/${rocksdbSo}" \
+        "/build/third-party/rocksdb/java/target/"
 
 # 3. RocksDB JNI jar: produced by make rocksdbjava, contains both Java classes
 #    and the native .so. We install it to the local Maven repo so that
