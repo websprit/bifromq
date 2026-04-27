@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Apache BifroMQ is a high-performance, distributed MQTT broker with native multi-tenancy support. It is built as a Maven multi-module Java project (JDK 17+, this branch targets JDK 25 with Compact Object Headers) with Protobuf/gRPC for inter-service communication, Netty for I/O, RocksDB for local storage, and a custom Raft implementation for distributed state. This branch adds MQTT over QUIC support (Phase 1-3) via `netty-incubator-codec-native-quic`.
+Apache BifroMQ is a high-performance, distributed MQTT broker with native multi-tenancy support. It is built as a Maven multi-module Java project with Protobuf/gRPC for inter-service communication, Netty for I/O, RocksDB for local storage, and a custom Raft implementation for distributed state. This branch adds MQTT over QUIC support (Phase 1-3) via `netty-incubator-codec-native-quic`.
+
+**JDK**: Compilation targets Java 25 bytecode (`maven.compiler.release=25`). The runtime target is also JDK 25 with ZGC (`-XX:+UseZGC`) and Compact Object Headers (`-XX:+UseCompactObjectHeaders`). Runtime JVM flags are canonically defined in `deploy/helm/bifromq/values.yaml`.
 
 ## Build System
 
@@ -61,6 +63,22 @@ The project uses Maven with the wrapper script `./mvnw`. Key build commands:
 - Test classes use **TestNG**, not JUnit. Integration tests are grouped with `@Test(groups = "integration")`.
 - Retry logic is configured via `testsuites/src/main/java/org/apache/bifromq/test/RetryTransformer.java` and `RetryListener.java`.
 
+## Deployment
+
+- **`k8s/`** — Raw Kubernetes YAML files for manual deployment: namespace, ConfigMap (standalone.yml), TLS Secret, StatefulSet (3 replicas, 10Gi PVC, MQTT TCP/QUIC/admin/gossip ports), NodePort Service.
+- **`deploy/helm/bifromq/`** — Helm chart (`bifromq-0.1.0`). The `values.yaml` is the canonical reference for JDK 25 JVM flags (ZGC, Compact Object Headers), QUIC listener config, TLS settings, plugin configuration, resource limits, and persistence. Templates generate ConfigMap (standalone.yml), StatefulSet, Services (headless + NodePort), and ServiceMonitor.
+
+## CI/CD
+
+Four GitHub Actions workflows in `.github/workflows/`:
+
+| Workflow | Trigger | What it does |
+|----------|---------|--------------|
+| `build-dev.yaml` | push/PR to `main`, `release-**`, `feat-**`, `hotfix-**`, `bugfix-**`, `fix-**` | Build + unit tests with JDK 17. License check via `apache/skywalking-eyes` |
+| `build-cov.yaml` | push/PR to `main` | Coverage build: `-Pbuild-coverage`, uploads JaCoCo report |
+| `docker-build.yml` | push to `main`/`feature/*`, tags `v*`, manual trigger | Multi-arch Docker build via `Dockerfile.build`. amd64 on `ubuntu-latest`, arm64 on native ARM runner (`ubuntu-24.04-arm`). Pushes to `ghcr.io`. Manifest merge step combines platform images |
+| `docker-publish.yml` | manual only | Official Apache release image. Downloads from Apache downloads, verifies SHA512+signature, pushes to DockerHub as `apache/bifromq` |
+
 ## Architecture
 
 ### Module Categories
@@ -77,18 +95,33 @@ The project uses Maven with the wrapper script `./mvnw`. Key build commands:
     - `base-kv-meta-service` — Metadata management atop the KV store.
   - `base-rpc` — gRPC-based RPC framework with traffic governing and in-process optimization.
   - `base-scheduler` — Batching and scheduling primitives.
+  - `base-hookloader` — Plugin/hook classloading infrastructure.
+  - `base-logger`, `base-env` — Logging and environment abstractions.
+  - `base-util` — Shared utility classes.
 - **`bifromq-*` (business services)**:
   - `bifromq-dist` — Pub/sub message distribution (topic matching, subscription routing).
   - `bifromq-inbox` — Per-tenant/client inbox/message queueing.
   - `bifromq-retain` — Retained message storage.
-  - `bifromq-session-dict` — MQTT session registry.
-  - `bifromq-deliverer` — Message delivery batching and pipelining.
-  - `bifromq-mqtt` — MQTT protocol implementation (MQTT 3.1/3.1.1/5.0 over TCP/TLS/WS/WSS/QUIC) on Netty. QUIC support uses `netty-incubator-codec-native-quic` with multi-stream routing.
+  - `bifromq-session-dict` — MQTT session registry. Uses `BatchSessionExistCall` + `OnlineCheckScheduler` for batched online-status queries.
+  - `bifromq-deliverer` — Fan-out message delivery with `BatchDeliveryCall` + `BatchDeliveryCallBuilderFactory`.
+  - `bifromq-mqtt` — MQTT protocol implementation (MQTT 3.1/3.1.1/5.0 over TCP/TLS/WS/WSS/QUIC) on Netty. QUIC uses `netty-incubator-codec-native-quic` with handlers: `QUICConnectionHandler`, `ControlStreamHandler`, `DataStreamHandler`, `QUICStreamRouter`, `QUICStreamInitializer`, `HmacQuicTokenHandler`, `QUICUtils`.
   - `bifromq-apiserver` — Administrative HTTP/gRPC API server.
 - **`bifromq-plugin-*`**: Extension points for auth, client balancing, event collection, resource throttling, settings, and sub-broker delegation. Uses PF4J for plugin lifecycle.
+- **`bifromq-native` / `bifromq-native-binding`**: Rust native acceleration (topic matching, compression, KV encoding) exposed via JNI. Build requires Rust toolchain.
+- **`third-party/rocksdb/`**: Custom RocksDB submodule with Java bindings (`rocksdbjni`).
+- **`bifromq-bom`**: Bill of Materials POM for dependency version management.
 - **`build/`**: Assembly modules and the standalone server starter (`StandaloneStarter`).
-- **`Dockerfile.broker`**: Dedicated broker-only Docker image build file (multi-stage with local Maven cache support).
 - **`testsuites/`**: Shared TestNG suite XMLs and retry utilities.
+## Docker Images
+
+Four Dockerfiles serve distinct purposes:
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | Official release image — downloads pre-built tar.gz from Apache, verifies SHA512+GPG signature, installs to JDK 25 JRE |
+| `Dockerfile.broker` | Multi-stage build optimized for CI — uses local Maven cache (`m2-cache`), `-Pbuild-release` |
+| `Dockerfile.build` | Cross-platform CI build (linux/amd64 + linux/arm64) — Stage 1 compiles Rust+RocksDB natively, Stage 2 compiles Java, Stage 3 produces minimal JRE image. Used by `docker-build.yml`. |
+| `Dockerfile.local` | Simple local dev image from locally-built `target/output/*.tar.gz`, based on `eclipse-temurin:25-jre` |
 
 ### Key Architectural Patterns
 
@@ -98,7 +131,7 @@ The project uses Maven with the wrapper script `./mvnw`. Key build commands:
 4. **Protobuf/GRPC**: Inter-service contracts are defined in `.proto` files. Generated code is produced by the `protobuf-maven-plugin` during the `compile` phase.
 5. **Native Rust Acceleration**: `bifromq-native` contains Rust code (compiled via Maven) for performance-critical paths like topic matching, compression, and KV encoding. It is exposed via JNI through `bifromq-native-binding`. The build requires a Rust toolchain if building the native components.
 6. **RocksDB Group Commit**: `base-kv-local-engine-rocksdb` includes `GroupCommitWriteQueue` to coalesce concurrent write batches into a single WAL sync, reducing write amplification under high load.
-7. **MQTT over QUIC**: `bifromq-mqtt-server` supports QUIC transport via `netty-incubator-codec-native-quic`, with dedicated handlers (`QUICConnectionHandler`, `ControlStreamHandler`, `DataStreamHandler`, `QUICStreamRouter`).
+7. **MQTT over QUIC**: `bifromq-mqtt-server` supports QUIC transport via `netty-incubator-codec-native-quic`. Key classes: `QUICConnectionHandler`, `ControlStreamHandler`, `DataStreamHandler`, `QUICStreamRouter`, `QUICStreamInitializer`, `QUICConnectionHandler`, `HmacQuicTokenHandler`, `QUICUtils`. QUIC connection migration uses HMAC-based tokens (`HmacQuicTokenHandler`).
 
 ## Important Files and Locations
 
