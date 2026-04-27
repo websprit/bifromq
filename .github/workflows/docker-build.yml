@@ -137,7 +137,7 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          echo "${digest}" > "/tmp/digests/${{ matrix.suffix }}.txt"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
@@ -195,11 +195,19 @@ jobs:
 
       - name: Create manifest list and push
         if: github.event_name != 'pull_request'
-        working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256@%s ' *)
+          # Read all digests and construct the image references
+          DIGESTS=""
+          for f in /tmp/digests/*.txt; do
+            DIGEST=$(cat "$f")
+            DIGESTS="$DIGESTS ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}"
+          done
+          # Apply all tags from metadata
+          TAG_ARGS=""
+          for tag in ${{ steps.meta.outputs.tags }}; do
+            TAG_ARGS="$TAG_ARGS -t $tag"
+          done
+          docker buildx imagetools create $TAG_ARGS $DIGESTS
 
       - name: Generate artifact attestation
         if: >
