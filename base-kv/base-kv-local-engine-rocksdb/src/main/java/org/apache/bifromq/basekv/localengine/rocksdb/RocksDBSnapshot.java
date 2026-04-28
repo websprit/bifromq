@@ -19,7 +19,6 @@
 
 package org.apache.bifromq.basekv.localengine.rocksdb;
 
-
 import org.rocksdb.Snapshot;
 
 record RocksDBSnapshot(IRocksDBKVSpaceEpoch epoch, Snapshot snapshot) {

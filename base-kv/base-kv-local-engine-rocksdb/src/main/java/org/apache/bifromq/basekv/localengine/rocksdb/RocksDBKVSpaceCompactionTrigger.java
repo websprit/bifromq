@@ -77,7 +77,6 @@ class RocksDBKVSpaceCompactionTrigger implements IWriteStatsRecorder {
         private final AtomicInteger tombstoneKeyCount = new AtomicInteger();
         private final AtomicInteger tombstoneRangeCount = new AtomicInteger();
 
-
         public void recordPut() {
             keyCount.incrementAndGet();
         }
@@ -98,8 +97,8 @@ class RocksDBKVSpaceCompactionTrigger implements IWriteStatsRecorder {
             int totalKeys = totalKeyCount.addAndGet(keyCount.get());
             int totalTombstones = totalTombstoneKeyCount.addAndGet(tombstoneKeyCount.get());
             int totalRangeTombstones = totalTombstoneRangeCount.addAndGet(tombstoneRangeCount.get());
-            if (totalRangeTombstones > minTombstoneRangesTrigger || (totalTombstones > minTombstoneKeysTrigger &&
-                (double) totalTombstones / (totalKeys + totalTombstones) >= minTombstoneKeysRatioTrigger)) {
+            if (totalRangeTombstones > minTombstoneRangesTrigger || (totalTombstones > minTombstoneKeysTrigger
+                && (double) totalTombstones / (totalKeys + totalTombstones) >= minTombstoneKeysRatioTrigger)) {
                 compactionScheduler.run();
             }
         }

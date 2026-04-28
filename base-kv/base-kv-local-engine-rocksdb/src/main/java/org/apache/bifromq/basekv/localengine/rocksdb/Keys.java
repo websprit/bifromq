@@ -41,16 +41,16 @@ class Keys {
         return result;
     }
 
-    public static ByteString fromDataKey(byte[] rawKey) {
-        return unsafeWrap(rawKey).substring(DATA_PREFIX.size());
-    }
-
     public static byte[] toDataKey(byte[] key) {
         int prefixLen = DATA_PREFIX.size();
         byte[] result = new byte[prefixLen + key.length];
         DATA_PREFIX.copyTo(result, 0);
         System.arraycopy(key, 0, result, prefixLen, key.length);
         return result;
+    }
+
+    public static ByteString fromDataKey(byte[] rawKey) {
+        return unsafeWrap(rawKey).substring(DATA_PREFIX.size());
     }
 
     public static byte[] toMetaKey(ByteString key) {
