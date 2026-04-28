@@ -194,6 +194,7 @@ public class KVRangeTest extends AbstractKVRangeTest {
         rangeWriter.done();
         try (IKVRangeRefreshableReader rangeReader = accessor.newReader(); IKVIterator kvItr = rangeReader.iterator()) {
             assertTrue(rangeReader.exist(key));
+            assertEquals(rangeReader.get(key).get(), val);
             kvItr.seek(key);
             assertTrue(kvItr.isValid());
             assertEquals(kvItr.key(), key);
@@ -226,6 +227,9 @@ public class KVRangeTest extends AbstractKVRangeTest {
         ByteString val = ByteString.copyFromUtf8("Value");
         rangeWriter.kvWriter().put(key, val);
         rangeWriter.done();
+        try (IKVRangeRefreshableReader rangeReader = accessor.newReader()) {
+            assertEquals(rangeReader.get(key).get(), val);
+        }
 
         accessor.startRestore(snapshot, (c, b) -> {}).done();
         try (IKVRangeRefreshableReader rangeReader = accessor.newReader()) {

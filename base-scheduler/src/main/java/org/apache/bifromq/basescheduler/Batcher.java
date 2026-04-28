@@ -87,7 +87,7 @@ final class Batcher<CallT, CallResultT, BatcherKeyT> {
         this.maxBurstLatency = maxBurstLatency;
         this.batchPool = new ConcurrentLinkedDeque<>();
         this.emaQueueingTime = new EMALong(System::nanoTime, 0.1, 0.9, maxBurstLatency);
-        Tags tags = Tags.of("name", name);
+        Tags tags = Tags.of("name", name, "key", Integer.toUnsignedString(System.identityHashCode(this)));
         dropCounter = Counter.builder("batcher.call.drop.count")
                 .tags(tags)
                 .register(Metrics.globalRegistry);

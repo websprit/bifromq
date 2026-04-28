@@ -115,9 +115,7 @@ class CachingKVRangeReader implements IKVRangeRefreshableReader {
         if (cached != null) {
             return cached.isPresent();
         }
-        boolean result = kvSpaceReader.exist(key);
-        readCache.put(key, result ? Optional.of(ByteString.EMPTY) : Optional.empty());
-        return result;
+        return kvSpaceReader.exist(key);
     }
 
     @Override
@@ -148,7 +146,9 @@ class CachingKVRangeReader implements IKVRangeRefreshableReader {
 
     @Override
     public void refresh() {
+        readCache.invalidateAll();
         kvSpaceReader.refresh();
+        readCache.invalidateAll();
     }
 
     @Override

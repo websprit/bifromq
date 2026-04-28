@@ -34,14 +34,21 @@ import org.apache.bifromq.basekv.store.util.KVUtil;
 
 class KVRangeRestoreSession implements IKVRangeRestoreSession {
     private final IRestoreSession restoreSession;
+    private final Runnable onDone;
 
     KVRangeRestoreSession(IRestoreSession restoreSession) {
+        this(restoreSession, () -> {});
+    }
+
+    KVRangeRestoreSession(IRestoreSession restoreSession, Runnable onDone) {
         this.restoreSession = restoreSession;
+        this.onDone = onDone;
     }
 
     @Override
     public void done() {
         restoreSession.done();
+        onDone.run();
     }
 
     @Override

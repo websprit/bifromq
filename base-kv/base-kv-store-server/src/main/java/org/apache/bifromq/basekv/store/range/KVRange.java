@@ -198,7 +198,7 @@ class KVRange implements IKVRange {
     @Override
     public IKVRangeRestoreSession startRestore(KVRangeSnapshot snapshot,
                                                IKVRangeRestoreSession.IKVRestoreProgressListener progressListener) {
-        return new KVRangeRestoreSession(kvSpace.startRestore(progressListener::onProgress))
+        return new KVRangeRestoreSession(kvSpace.startRestore(progressListener::onProgress), cacheFullInvalidator)
             .ver(snapshot.getVer())
             .lastAppliedIndex(snapshot.getLastAppliedIndex())
             .state(snapshot.getState())
