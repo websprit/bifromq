@@ -1,0 +1,408 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+          #- beta
+          - nightly
+        include:
+          - rust: nightly
+            allow_failure: true
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+
+    - name: Install protoc
+      uses: arduino/setup-protoc@v3
+      with:
+        version: '25.x'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+          mqtt_grpc_duality/target
+        key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Check formatting
+      if: matrix.rust == 'stable'
+      run: cargo fmt --all -- --check
+
+    - name: Run clippy
+      if: matrix.rust == 'stable'
+      run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+    - name: Build workspace
+      run: cargo build --workspace --verbose
+
+    - name: Run tests - Main library
+      run: cargo test --verbose
+
+    - name: Run tests - Proxy workspace
+      run: cd mqtt_grpc_duality && cargo test --verbose
+
+    - name: Run tests - Workspace (all)
+      run: cargo test --workspace --verbose
+
+    - name: Run tests all features
+      run:  cargo test --workspace --all-features 
+
+    - name: Build and Run C FFI Examples
+      run: |
+        make -C examples/c_ffi_example clean
+        # Build all variations
+        make -C examples/c_ffi_example mqtt_c_example
+        make -C examples/c_ffi_example quic_c_example
+        make -C examples/c_ffi_example tls_c_example
+        
+        # Run brief verifications against demo broker
+        LD_LIBRARY_PATH="$PWD/target/debug:$LD_LIBRARY_PATH" timeout 5s ./examples/c_ffi_example/out/mqtt_c_example || true
+        LD_LIBRARY_PATH="$PWD/target/debug:$LD_LIBRARY_PATH" timeout 5s ./examples/c_ffi_example/out/quic_c_example broker.emqx.io 14567 || true
+        LD_LIBRARY_PATH="$PWD/target/debug:$LD_LIBRARY_PATH" timeout 5s ./examples/c_ffi_example/out/tls_c_example broker.emqx.io 8883 || true
+
+  fuzz:
+    name: Fuzz Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/dev/'))
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust nightly
+      uses: dtolnay/rust-toolchain@nightly
+
+    - name: Install cargo-fuzz
+      run: cargo install cargo-fuzz
+
+    - name: Cache fuzz dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          fuzz/target
+        key: ${{ runner.os }}-fuzz-${{ hashFiles('fuzz/Cargo.lock') }}
+
+    - name: Build fuzz targets
+      run: cd fuzz && cargo build
+
+    - name: Run fuzz tests (limited time)
+      run: |
+        cd fuzz
+        timeout 30s cargo fuzz run fuzz_parser_funs || true
+        timeout 30s cargo fuzz run fuzz_mqtt_packet_symmetric || true
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit
+
+    - name: Run security audit
+      run: cargo audit
+
+  python-bindings:
+    name: Python Bindings
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Build and Test Bindings
+      run: ./scripts/build_python_bindings.sh --test
+
+  kotlin-bindings:
+    name: Kotlin Bindings
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-kotlin-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-kotlin-
+
+    - name: Build and Verify Kotlin Bindings
+      run: ./scripts/build_kotlin_bindings.sh
+
+    - name: Verify Examples Build
+      run: |
+        cd kotlin
+        ./gradlew :examples:simple_client:build
+        ./gradlew :examples:quic_client:build
+
+  swift-bindings:
+    name: Swift Bindings
+    runs-on: macos-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+      with:
+        components: llvm-tools-preview
+
+    - name: Install cargo-llvm-cov
+      run: cargo install cargo-llvm-cov
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-swift-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-swift-
+
+    - name: Build Rust, Generate Swift Bindings, and Verify swift build
+      run: ./scripts/build_swift_bindings.sh --coverage --test
+
+    - name: Export coverage to lcov
+      run: |
+        PROFDATA_VAR=$(cargo +stable llvm-cov show-env | grep LLVM_PROFDATA) || true
+        PROFDATA_TOOL=$(echo "$PROFDATA_VAR" | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)
+        if [ -z "$PROFDATA_TOOL" ] || [ ! -x "$PROFDATA_TOOL" ]; then
+          export PATH="$(rustc --print=target-libdir)/../bin:$PATH"
+          PROFDATA_TOOL=$(which llvm-profdata)
+        fi
+        if ls target/llvm-cov-target/*.profraw 2>/dev/null; then
+          "$PROFDATA_TOOL" merge -sparse target/llvm-cov-target/*.profraw \
+            -o target/llvm-cov-target/swift-cov.profdata
+          llvm-cov export -format=lcov \
+            --instr-profile target/llvm-cov-target/swift-cov.profdata \
+            -object target/debug/libflowsdk_ffi.dylib \
+            > lcov-swift.info
+        else
+          echo "No profraw files found; skipping lcov export."
+        fi
+
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: swift-coverage-data
+        path: |
+          lcov-swift.info
+          target/llvm-cov-target/swift-cov.profdata
+          target/llvm-cov-target/*.profraw
+        retention-days: 7
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: lcov-swift.info
+        fail_ci_if_error: false
+        token: ${{ secrets.CODECOV_TOKEN }}
+        verbose: true
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+      with:
+        components: llvm-tools-preview
+
+    - name: Install protoc
+      uses: arduino/setup-protoc@v3
+      with:
+        version: '25.x'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install cargo-llvm-cov
+      run: cargo install cargo-llvm-cov
+
+    - name: Generate coverage report
+      run: |
+        ./scripts/generate_coverage.sh
+        ./scripts/generate_coverage_integration.sh
+
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: coverage-data
+        path: |
+          lcov.info
+          lcov2.info
+          lcov3.info
+          target/llvm-cov-target/cargo-llvm-cov.profdata
+          target/llvm-cov-target/*.profraw
+        retention-days: 7
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: lcov.info,lcov2.info,lcov3.info
+        fail_ci_if_error: false
+        token: ${{ secrets.CODECOV_TOKEN }}
+        verbose: true
+
+  benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+
+    - name: Install protoc
+      uses: arduino/setup-protoc@v3
+      with:
+        version: '25.x'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cache benchmark dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-bench-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run benchmarks
+      run: cargo bench --workspace
+
+  build-binaries:
+    name: Build Release Binaries
+    runs-on: ${{ matrix.os }}    
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install protoc
+      uses: arduino/setup-protoc@v3
+      with:
+        version: '25.x'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build release binaries
+      run: |
+        cargo build --release --target ${{ matrix.target }} --workspace
+
+    - name: Create artifact directory
+      run: mkdir -p artifacts
+
+    - name: Copy binaries (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        cp target/${{ matrix.target }}/release/r-proxy artifacts/r-proxy-${{ matrix.target }}
+        cp target/${{ matrix.target }}/release/s-proxy artifacts/s-proxy-${{ matrix.target }}
+
+    - name: Copy binaries (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cp target/${{ matrix.target }}/release/r-proxy.exe artifacts/r-proxy-${{ matrix.target }}.exe
+        cp target/${{ matrix.target }}/release/s-proxy.exe artifacts/s-proxy-${{ matrix.target }}.exe
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: binaries-${{ matrix.target }}
+        path: artifacts/

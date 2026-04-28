@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MPL-2.0
+
+pub mod async_client;
+pub mod client;
+pub mod commands;
+pub mod engine;
+pub mod error;
+pub mod inflight;
+pub mod no_io_client;
+pub mod opts;
+#[cfg(feature = "protocol-testing")]
+pub mod raw_packet;
+#[cfg(feature = "rustls-tls")]
+pub mod tls_engine;
+pub mod tokio_async_client;
+#[cfg(feature = "quic")]
+pub mod tokio_quic_client;
+pub mod transport;
+
+// Re-exports
+pub use async_client::{AsyncClientConfig, AsyncMqttClient, MqttEventHandler};
+pub use client::{
+    AuthResult, ConnectionResult, MqttClient, PingResult, PublishResult, SubscribeResult,
+    Subscription, UnsubscribeResult,
+};
+pub use commands::{
+    PublishBuilderError, PublishCommand, PublishCommandBuilder, SubscribeBuilderError,
+    SubscribeCommand, SubscribeCommandBuilder, UnsubscribeCommand,
+};
+pub use engine::{MqttEngine, MqttEvent, MqttMessage};
+pub use error::{MqttClientError, MqttClientResult};
+pub use no_io_client::NoIoMqttClient;
+pub use opts::{MqttClientOptions, MqttClientOptionsBuilder};
+#[cfg(feature = "rustls-tls")]
+pub use tls_engine::TlsMqttEngine;
+pub use tokio_async_client::{
+    TokioAsyncClientConfig, TokioAsyncMqttClient, TokioMqttEvent, TokioMqttEventHandler,
+};
+#[cfg(feature = "quic")]
+pub use tokio_quic_client::TokioQuicMqttClient;

@@ -5,3 +5,4 @@
 .gitignore          export-ignore
 .licenserc.yaml     export-ignore
 lombok.config       export-ignore
+third-party/flowsdk/** -whitespace

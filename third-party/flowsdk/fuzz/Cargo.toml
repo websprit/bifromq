@@ -1,0 +1,31 @@
+[package]
+name = "flowsdk-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.flowsdk]
+path = ".."
+features = ["arbitrary"]
+
+[[bin]]
+name = "fuzz_parser_funs"
+path = "fuzz_targets/fuzz_parser_funs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_mqtt_packet_symmetric"
+path = "fuzz_targets/fuzz_mqtt_packet_symmetric.rs"
+test = false
+doc = false
+bench = false

@@ -1174,6 +1174,7 @@
                         <exclude>deploy/helm/**</exclude>
                         <exclude>tests/nanosdk_official_demo/**</exclude>
                         <exclude>tests/swift_mqtt_test/**</exclude>
+                        <exclude>third-party/flowsdk/**</exclude>
                         <exclude>bifromq-native/*.toml</exclude>
                         <exclude>**/*.sha512</exclude>
                         <exclude>**/Vendor/**</exclude>

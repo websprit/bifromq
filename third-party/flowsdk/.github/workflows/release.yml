@@ -1,0 +1,215 @@
+name: Release
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ref to release'
+        required: false
+        default: ''
+      ref_name:
+        description: 'Tag to (re)release'
+        required: false
+
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    
+    steps:
+    - name: Get version from tag
+      id: get_version
+      run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: FlowSDK ${{ steps.get_version.outputs.version }}
+        body: |
+          ## FlowSDK ${{ steps.get_version.outputs.version }}
+          
+          
+        draft: true
+        prerelease: ${{ contains(steps.get_version.outputs.version, '-') }}
+
+  publish-crates:
+    name: Publish to Crates.io
+    needs: create-release
+    runs-on: ubuntu-latest
+    if: "!contains(needs.create-release.outputs.version, '-')"  # Only for stable releases? Or remove if you want pre-releases too.
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: '25.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Tag matches Cargo.toml
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          CORE_VERSION=$(grep "^version" Cargo.toml | head -n 1 | cut -d '"' -f 2)
+          FFI_VERSION=$(grep "^version" flowsdk_ffi/Cargo.toml | head -n 1 | cut -d '"' -f 2)
+          
+          echo "Tag: $TAG_VERSION"
+          echo "Core: $CORE_VERSION"
+          echo "FFI:  $FFI_VERSION"
+
+          if [ "$TAG_VERSION" != "$CORE_VERSION" ]; then
+            echo "Error: Tag ($TAG_VERSION) mismatch with Core ($CORE_VERSION)"
+            exit 1
+          fi
+          
+          if [ "$TAG_VERSION" != "$FFI_VERSION" ]; then
+            echo "Error: Tag ($TAG_VERSION) mismatch with FFI ($FFI_VERSION)"
+            exit 1
+          fi
+          
+          echo "✅ Versions match confirmed!"
+
+      - name: Publish flowsdk (Core)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p flowsdk
+
+      - name: Wait for Index Propagation
+        run: sleep 40
+
+      - name: Publish flowsdk_ffi (Bindings)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p flowsdk_ffi
+
+  build-and-upload:
+    name: Build binaries
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            asset_name_suffix: linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            asset_name_suffix: linux-arm64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            asset_name_suffix: macos-amd64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            asset_name_suffix: macos-arm64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            asset_name_suffix: windows-amd64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref }}
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install protoc
+      uses: arduino/setup-protoc@v3
+      with:
+        version: '25.x'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install cross-compilation tools (Linux ARM64)
+      if: matrix.target == 'aarch64-unknown-linux-gnu'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+
+    - name: Configure cross-compilation (Linux ARM64)
+      if: matrix.target == 'aarch64-unknown-linux-gnu'
+      run: |
+        echo "[target.aarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
+        echo "linker = \"aarch64-linux-gnu-gcc\"" >> ~/.cargo/config.toml
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build release binaries
+      run: |
+        cd mqtt_grpc_duality
+        cargo build --release --target ${{ matrix.target }}
+
+    - name: Create release package (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        mkdir -p release-package
+        cp mqtt_grpc_duality/target/${{ matrix.target }}/release/r-proxy release-package/
+        cp mqtt_grpc_duality/target/${{ matrix.target }}/release/s-proxy release-package/
+        cp README.md release-package/
+        cp mqtt_grpc_duality/README.md release-package/PROXY-README.md
+        tar -czf flowsdk-${{ needs.create-release.outputs.version }}-${{ matrix.asset_name_suffix }}.tar.gz -C release-package .
+
+    - name: Create release package (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        mkdir release-package
+        cp mqtt_grpc_duality/target/${{ matrix.target }}/release/r-proxy.exe release-package/
+        cp mqtt_grpc_duality/target/${{ matrix.target }}/release/s-proxy.exe release-package/
+        cp README.md release-package/
+        cp mqtt_grpc_duality/README.md release-package/PROXY-README.md
+        Compress-Archive -Path release-package/* -DestinationPath flowsdk-${{ needs.create-release.outputs.version }}-${{ matrix.asset_name_suffix }}.zip
+
+    - name: Upload Release Asset (Unix)
+      if: runner.os != 'Windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./flowsdk-${{ needs.create-release.outputs.version }}-${{ matrix.asset_name_suffix }}.tar.gz
+        asset_name: flowsdk-${{ needs.create-release.outputs.version }}-${{ matrix.asset_name_suffix }}.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload Release Asset (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./flowsdk-${{ needs.create-release.outputs.version }}-${{ matrix.asset_name_suffix }}.zip
+        asset_name: flowsdk-${{ needs.create-release.outputs.version }}-${{ matrix.asset_name_suffix }}.zip
+        asset_content_type: application/zip

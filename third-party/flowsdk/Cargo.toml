@@ -1,0 +1,84 @@
+[package]
+name = "flowsdk"
+version = "0.4.2"
+edition = "2021"
+description = "Safety-first, realistic, behavior-predictable messaging SDK for MQTT and more."
+license = "MPL-2.0"
+repository = "https://github.com/emqx/flowsdk"
+documentation = "https://docs.rs/flowsdk"
+keywords = ["mqtt", "async", "tokio", "network", "mqtt_over_quic"]
+categories = ["network-programming", "asynchronous"]
+
+[workspace]
+members = [".", "mqtt_grpc_duality", "flowsdk_ffi"]
+exclude = ["fuzz"]
+
+[dependencies]
+tonic = "0.14.1"
+prost = "0.14"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time"] }
+tonic-prost = "0.14.1"
+serde = { version = "1.0.218", features = ["derive"] }
+hex = "0.4"
+bytes = { version = "1", features = ["serde"] }
+tokio-stream = "0.1"
+arbitrary = { version = "1", optional = true, features = ["derive"] }
+serde_json = "1.0"
+slab = "0.4.11"
+async-trait = "0.1"
+thiserror = "1.0"
+ctrlc = "3.4"
+
+# TLS support (optional)
+tokio-native-tls = { version = "0.3", optional = true }
+native-tls = { version = "0.2", optional = true }
+
+# QUIC support (optional)
+quinn = { version = "0.11", optional = true }
+quinn-proto = { version = "0.11", optional = true }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std"] }
+rustls-native-certs = { version = "0.7", optional = true }
+rustls-pki-types = { version = "1", optional = true }
+tokio-rustls = { version = "0.26", optional = true }
+
+[features]
+default = ["strict-protocol-compliance", "tls"]
+# TLS/SSL transport support
+tls = ["dep:tokio-native-tls", "dep:native-tls"]
+# QUIC transport support
+quic = ["dep:quinn", "dep:quinn-proto", "dep:rustls", "dep:rustls-native-certs", "dep:rustls-pki-types"]
+# Rustls-based TLS over TCP (mqtts://) transport support
+rustls-tls = [
+	"dep:tokio-rustls",
+	"dep:rustls",
+	"dep:rustls-native-certs",
+	"dep:rustls-pki-types",
+]
+strict-protocol-compliance = []
+# ⚠️ DANGEROUS: Enable raw packet API for protocol compliance testing
+# DO NOT enable in production builds
+protocol-testing = []
+
+# Force static linking of the C runtime
+# usage: cargo build --target aarch64-unknown-linux-musl --examples --features quic
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[dev-dependencies]
+futures = "0.3"
+
+[[example]]
+name = "no_io_quic_async_client_example"
+required-features = ["quic"]
+
+[[example]]
+name = "no_io_quic_client_example"
+required-features = ["quic"]
+
+[[example]]
+name = "no_io_tokio_quic_client_example"
+required-features = ["quic"]
+
+[[example]]
+name = "tokio_async_mqtt_quic_example"
+required-features = ["quic"]
