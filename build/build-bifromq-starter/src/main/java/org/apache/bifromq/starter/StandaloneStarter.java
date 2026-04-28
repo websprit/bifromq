@@ -249,6 +249,7 @@ public class StandaloneStarter {
     void stop() {
         bootstrappedServices.stop();
         sharedResourcesHolder.close();
+        agentHost.close();
         closeables.forEach(closable -> {
             try {
                 closable.close();

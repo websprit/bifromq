@@ -54,6 +54,7 @@ final class GroupCommitWriteQueue {
     // Leader writes it after signaling followers; next leader reads it inside the lock.
     // Volatile ensures visibility across the lock boundary.
     private volatile List<PendingWrite> recycledList;
+    private boolean writing;
 
     GroupCommitWriteQueue(RocksDB db, WriteOptions writeOptions) {
         this.db = db;
@@ -71,29 +72,53 @@ final class GroupCommitWriteQueue {
     void submit(WriteBatch batch) {
         PendingWrite myWrite = new PendingWrite(batch);
         boolean isLeader = false;
-        List<PendingWrite> toWrite = null;
 
         lock.lock();
         try {
             pendingWrites.add(myWrite);
-            if (pendingWrites.size() == 1) {
-                // First writer becomes leader
+            if (!writing) {
+                writing = true;
                 isLeader = true;
-            }
-            if (isLeader) {
-                // Swap references instead of copying to minimize lock hold time.
-                // Reuse a previously recycled list if available to avoid allocation.
-                toWrite = pendingWrites;
-                List<PendingWrite> next = recycledList;
-                pendingWrites = next != null ? next : new ArrayList<>(64);
-                recycledList = null;
             }
         } finally {
             lock.unlock();
         }
 
         if (isLeader) {
-            // Leader writes all batches
+            drain();
+        }
+
+        // Both leader and followers wait for result here
+        // Leader's future is already completed above
+        try {
+            myWrite.result.join();
+        } catch (java.util.concurrent.CompletionException e) {
+            if (e.getCause() instanceof KVEngineException kve) {
+                throw kve;
+            }
+            throw new KVEngineException("Group commit failed", e.getCause());
+        }
+    }
+
+    private void drain() {
+        while (true) {
+            List<PendingWrite> toWrite;
+            lock.lock();
+            try {
+                if (pendingWrites.isEmpty()) {
+                    writing = false;
+                    return;
+                }
+                // Swap references instead of copying to minimize lock hold time.
+                // Reuse a previously recycled list if available to avoid allocation.
+                toWrite = pendingWrites;
+                List<PendingWrite> next = recycledList;
+                pendingWrites = next != null ? next : new ArrayList<>(64);
+                recycledList = null;
+            } finally {
+                lock.unlock();
+            }
+
             KVEngineException failure = null;
             try {
                 if (toWrite.size() == 1) {
@@ -111,7 +136,6 @@ final class GroupCommitWriteQueue {
             } catch (RocksDBException e) {
                 failure = new KVEngineException("Group commit write failed", e);
             }
-            // Signal all followers
             for (PendingWrite pw : toWrite) {
                 if (failure != null) {
                     pw.result.completeExceptionally(failure);
@@ -119,20 +143,19 @@ final class GroupCommitWriteQueue {
                     pw.result.complete(null);
                 }
             }
-            // Recycle the list for the next leader to avoid allocation.
-            toWrite.clear();
-            recycledList = toWrite;
-        }
 
-        // Both leader and followers wait for result here
-        // Leader's future is already completed above
-        try {
-            myWrite.result.join();
-        } catch (java.util.concurrent.CompletionException e) {
-            if (e.getCause() instanceof KVEngineException kve) {
-                throw kve;
+            toWrite.clear();
+            lock.lock();
+            try {
+                // Recycle the list for the next leader to avoid allocation.
+                recycledList = toWrite;
+                if (pendingWrites.isEmpty()) {
+                    writing = false;
+                    return;
+                }
+            } finally {
+                lock.unlock();
             }
-            throw new KVEngineException("Group commit failed", e.getCause());
         }
     }
 

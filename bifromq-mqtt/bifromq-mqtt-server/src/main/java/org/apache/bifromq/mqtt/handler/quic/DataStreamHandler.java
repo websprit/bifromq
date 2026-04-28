@@ -19,10 +19,13 @@
 
 package org.apache.bifromq.mqtt.handler.quic;
 
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.mqtt.MqttFixedHeader;
 import io.netty.handler.codec.mqtt.MqttMessage;
 import io.netty.handler.codec.mqtt.MqttMessageType;
+import io.netty.handler.codec.mqtt.MqttQoS;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -52,8 +55,10 @@ public class DataStreamHandler extends ChannelInboundHandlerAdapter {
             if (isDataMessage(type)) {
                 ctx.fireChannelRead(msg);
             } else {
-                log.warn("Received control-plane message {} on data stream, dropping", type);
-                // TODO: optionally send error response
+                log.warn("Received control-plane message {} on data stream, closing connection", type);
+                MqttMessage disco = new MqttMessage(
+                    new MqttFixedHeader(MqttMessageType.DISCONNECT, false, MqttQoS.AT_MOST_ONCE, false, 0));
+                ctx.writeAndFlush(disco).addListener(ChannelFutureListener.CLOSE);
             }
         } else {
             ctx.fireChannelRead(msg);

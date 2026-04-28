@@ -85,7 +85,7 @@ public class EMALongTest {
         ema.update(100L);
         // advance time to after delay + 2s total => one decay period
         fakeTime.set(1_000_000_001L + 1_000_000_000L);
-        // (now - lastUpdate - delay) / 1e9 = (2s - 1s)/1e9 = 1 => ceil(1) =1
+        // (now - lastUpdate - delay) / 1e9 = (2s - 1s)/1e9 = 1.0
         // value * decay^1 = 100 * 0.5 = 50
         assertEquals(ema.get(), 50);
     }
@@ -96,10 +96,19 @@ public class EMALongTest {
         EMALong ema = new EMALong(nowSupplier, 0.5, 0.5, 1_000_000_000L);
         fakeTime.set(1L);
         ema.update(80L);
-        // advance time to after delay + 3.2s => ceil(3.2)=4 periods
-        fakeTime.set(1_000_000_000L + 3_200_000_000L);
+        // advance time to after delay + 4s => 4 decay periods
+        fakeTime.set(1_000_000_000L + 4_000_000_000L);
         // expected = 80 * 0.5^4 = 80 / 16 = 5
         assertEquals(ema.get(), 5);
+    }
+
+    @Test
+    void testFractionalDecayPeriod() {
+        EMALong ema = new EMALong(nowSupplier, 0.5, 0.5, 1_000_000_000L);
+        fakeTime.set(1L);
+        ema.update(100L);
+        fakeTime.set(1L + 1_000_000_000L + 1_500_000_000L);
+        assertEquals(ema.get(), 35);
     }
 
     @Test

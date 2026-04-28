@@ -106,7 +106,10 @@ public class QUICStreamRouter {
         if (index < 0 || index >= dataStreamCount) {
             throw new IllegalArgumentException("Stream index out of range: " + index);
         }
-        this.dataStreams.set(index, stream);
+        QuicStreamChannel old = this.dataStreams.getAndSet(index, stream);
+        if (old != null && old != stream) {
+            old.close();
+        }
     }
 
     /**
@@ -116,12 +119,19 @@ public class QUICStreamRouter {
         return dataStreams.get(index);
     }
 
+    private static final int MAX_PACKET_MAPPINGS = 65536;
+
     /**
      * Registers a packetId → stream index mapping.
      * Used for routing PUBACK/PUBREC/PUBREL/PUBCOMP responses
      * back to the correct data stream.
      */
     public void registerPacketId(int packetId, int streamIndex) {
+        if (packetIdToStreamIndex.size() >= MAX_PACKET_MAPPINGS) {
+            int toRemove = MAX_PACKET_MAPPINGS / 4;
+            packetIdToStreamIndex.keySet().stream().limit(toRemove)
+                .forEach(packetIdToStreamIndex::remove);
+        }
         packetIdToStreamIndex.put(packetId, streamIndex);
     }
 

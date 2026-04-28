@@ -108,7 +108,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
     private long qos0ConfirmUpToSeq;
     private long inboxConfirmedUpToSeq = -1;
     private IInboxClient.IInboxReader inboxReader;
-    private State state = State.INIT;
+    private volatile State state = State.INIT;
     private ScheduledFuture<?> confirmTimeout;
     private ScheduledFuture<?> hintTimeout;
     private final Cache<String, CompletableFuture<org.apache.bifromq.plugin.authprovider.type.CheckResult>> authCache;
@@ -414,7 +414,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
 
     private void scheduleConfirmTimeout(long upToSeq) {
         confirmTimeout = ctx.executor().schedule(() -> {
-            if (upToSeq < inboxConfirmedUpToSeq) {
+            if (upToSeq <= inboxConfirmedUpToSeq) {
                 confirmSendBuffer();
             }
         }, ThreadLocalRandom.current().nextLong(15, 45), TimeUnit.SECONDS);
@@ -510,18 +510,11 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                             handleProtocolResponse(helper().onInboxTransientError(v.getCode().name()));
                         case BACK_PRESSURE_REJECTED -> {
                             inboxConfirming = false;
-                            if (upToSeq < inboxConfirmedUpToSeq) {
-                                scheduleConfirmTimeout(upToSeq);
-                            }
+                            scheduleConfirmTimeout(upToSeq);
                         }
                         case TRY_LATER -> {
-                            // try again with same version
                             inboxConfirming = false;
-                            if (upToSeq < inboxConfirmedUpToSeq) {
-                                confirmSendBuffer();
-                            } else {
-                                inboxReader.hint(clientReceiveQuota());
-                            }
+                            scheduleConfirmTimeout(upToSeq);
                         }
                         default -> {
                             // never happens
@@ -614,7 +607,7 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
         authCache.get(cacheKey,
                 k -> addFgTask(
                         authProvider.checkPermission(clientInfo(), buildSubAction(topicFilter, option.getQos()))))
-                .thenAccept(checkResult -> {
+                .thenApplyAsync(checkResult -> {
                     String topic = topicMsg.getTopic();
                     Message message = topicMsg.getMessage();
                     ClientInfo publisher = topicMsg.getPublisher();
@@ -627,12 +620,9 @@ public abstract class MQTTPersistentSessionHandler extends MQTTSessionHandler im
                     if (prev == null) {
                         memUsage.addAndGet(msg.estBytes());
                     }
-                    if (ctx.executor().inEventLoop()) {
-                        this.drainStaging();
-                    } else {
-                        ctx.executor().execute(this::drainStaging);
-                    }
-                });
+                    this.drainStaging();
+                    return null;
+                }, ctx.executor());
     }
 
     private void drainStaging() {

@@ -1,0 +1,636 @@
+meta:
+  profile: engineering-review
+  theme: tech-blue
+  layout: vertical
+  title: "Apache BifroMQ Module Architecture"
+  description: "Complete Maven module dependency and layered architecture of Apache BifroMQ"
+  routing: orthogonal
+
+modules:
+  - id: ext
+    label: "External Clients"
+    color: "#FEF3C7"
+  - id: assembly
+    label: "Assembly Layer"
+    color: "#E0E7FF"
+  - id: api_plugin
+    label: "API & Plugin Layer"
+    color: "#DBEAFE"
+  - id: protocol
+    label: "Protocol Layer (MQTT)"
+    color: "#D1FAE5"
+  - id: business
+    label: "Business Services Layer"
+    color: "#CFFAFE"
+  - id: storage
+    label: "Storage Layer (base-kv)"
+    color: "#F3E8FF"
+  - id: cluster
+    label: "Cluster & RPC Layer"
+    color: "#FCE7F3"
+  - id: foundation
+    label: "Foundation Layer"
+    color: "#F3F4F6"
+
+nodes:
+  # ===== External Clients =====
+  - id: mqtt_v3
+    label: "MQTT 3.1/3.1.1"
+    type: user
+    module: ext
+    size: small
+
+  - id: mqtt_v5
+    label: "MQTT 5.0"
+    type: user
+    module: ext
+    size: small
+
+  - id: mqtt_ws
+    label: "MQTT over WS/WSS"
+    type: user
+    module: ext
+    size: small
+
+  - id: mqtt_quic
+    label: "MQTT over QUIC"
+    type: user
+    module: ext
+    size: small
+
+  - id: http_admin
+    label: "HTTP/gRPC Admin"
+    type: user
+    module: ext
+    size: small
+
+  # ===== Assembly Layer =====
+  - id: starter
+    label: "StandaloneStarter\n(Guice DI)"
+    type: terminal
+    module: assembly
+    size: medium
+
+  - id: plugin_demo
+    label: "build-plugin-demo"
+    type: service
+    module: assembly
+    size: small
+
+  # ===== API & Plugin Layer =====
+  - id: apiserver
+    label: "bifromq-apiserver\n(HTTP/gRPC Admin)"
+    type: service
+    module: api_plugin
+    size: medium
+
+  - id: plugin_mgr
+    label: "bifromq-plugin-manager\n(PF4J Lifecycle)"
+    type: service
+    module: api_plugin
+    size: medium
+
+  - id: plugin_auth
+    label: "plugin-auth-provider"
+    type: service
+    module: api_plugin
+    size: small
+
+  - id: plugin_balancer
+    label: "plugin-client-balancer"
+    type: service
+    module: api_plugin
+    size: small
+
+  - id: plugin_event
+    label: "plugin-event-collector"
+    type: service
+    module: api_plugin
+    size: small
+
+  - id: plugin_throttle
+    label: "plugin-resource-throttler"
+    type: service
+    module: api_plugin
+    size: small
+
+  - id: plugin_setting
+    label: "plugin-setting-provider"
+    type: service
+    module: api_plugin
+    size: small
+
+  - id: plugin_subbroker
+    label: "plugin-sub-broker"
+    type: service
+    module: api_plugin
+    size: small
+
+  # ===== Protocol Layer =====
+  - id: mqtt_server
+    label: "bifromq-mqtt-server\nNetty Handlers:\nv3 / v5 / WS / QUIC"
+    type: process
+    module: protocol
+    size: large
+
+  - id: mqtt_broker_client
+    label: "mqtt-broker-client"
+    type: service
+    module: protocol
+    size: small
+
+  - id: mqtt_broker_rpc
+    label: "mqtt-broker-rpc-definition"
+    type: document
+    module: protocol
+    size: small
+
+  - id: mqtt_server_spi
+    label: "mqtt-server-spi"
+    type: service
+    module: protocol
+    size: small
+
+  # ===== Business Services Layer =====
+  - id: dist
+    label: "bifromq-dist\n(Topic Matching / Routing)\nclient | rpc | coproc | worker | server"
+    type: service
+    module: business
+    size: large
+
+  - id: inbox
+    label: "bifromq-inbox\n(Message Queueing)\nclient | rpc | coproc | store | server"
+    type: service
+    module: business
+    size: large
+
+  - id: retain
+    label: "bifromq-retain\n(Retained Messages)\nclient | rpc | coproc | store | gc | server"
+    type: service
+    module: business
+    size: large
+
+  - id: session_dict
+    label: "bifromq-session-dict\n(Session Registry)\nclient | rpc | server"
+    type: service
+    module: business
+    size: medium
+
+  - id: deliverer
+    label: "bifromq-deliverer\n(Batching / Pipelining)"
+    type: queue
+    module: business
+    size: medium
+
+  # ===== Storage Layer =====
+  - id: kv_raft
+    label: "base-kv-raft\n(Custom Raft Consensus)"
+    type: service
+    module: storage
+    size: medium
+
+  - id: kv_rocksdb
+    label: "base-kv-local-engine-rocksdb\n(GroupCommitWriteQueue)"
+    type: database
+    module: storage
+    size: medium
+
+  - id: kv_memory
+    label: "base-kv-local-engine-memory"
+    type: database
+    module: storage
+    size: small
+
+  - id: kv_store_server
+    label: "base-kv-store-server\n(CoProc Host)"
+    type: service
+    module: storage
+    size: medium
+
+  - id: kv_store_client
+    label: "base-kv-store-client"
+    type: service
+    module: storage
+    size: small
+
+  - id: kv_coproc_api
+    label: "base-kv-store-coproc-api"
+    type: service
+    module: storage
+    size: small
+
+  - id: kv_meta
+    label: "base-kv-meta-service\n(Metadata Mgmt)"
+    type: service
+    module: storage
+    size: medium
+
+  - id: kv_balance
+    label: "base-kv-store-balance-controller"
+    type: service
+    module: storage
+    size: small
+
+  # ===== Cluster & RPC Layer =====
+  - id: cluster
+    label: "base-cluster\n(Membership / FD /\nUDP/TCP Transport)"
+    type: service
+    module: cluster
+    size: medium
+
+  - id: rpc_server
+    label: "base-rpc-server\n(gRPC Server)"
+    type: service
+    module: cluster
+    size: small
+
+  - id: rpc_client
+    label: "base-rpc-client\n(gRPC Client)"
+    type: service
+    module: cluster
+    size: small
+
+  - id: rpc_inproc
+    label: "base-rpc-grpc-inproc"
+    type: service
+    module: cluster
+    size: small
+
+  - id: rpc_traffic
+    label: "base-rpc-traffic-governor"
+    type: service
+    module: cluster
+    size: small
+
+  - id: crdt
+    label: "base-crdt\n(ORMap / CCounter /\nAnti-Entropy Gossip)"
+    type: service
+    module: cluster
+    size: medium
+
+  - id: scheduler
+    label: "base-scheduler\n(Batching Primitives)"
+    type: queue
+    module: cluster
+    size: small
+
+  # ===== Foundation Layer =====
+  - id: base_env
+    label: "base-env\nbase-util | base-logger"
+    type: service
+    module: foundation
+    size: small
+
+  - id: hlc
+    label: "base-hlc\n(Hybrid Logical Clock)"
+    type: service
+    module: foundation
+    size: small
+
+  - id: hookloader
+    label: "base-hookloader"
+    type: service
+    module: foundation
+    size: small
+
+  - id: common_type
+    label: "bifromq-common-type\n(Protobuf Types)"
+    type: document
+    module: foundation
+    size: small
+
+  - id: metrics
+    label: "bifromq-metrics\n(Micrometer/Prometheus)"
+    type: service
+    module: foundation
+    size: small
+
+  - id: sysprops
+    label: "bifromq-sysprops"
+    type: service
+    module: foundation
+    size: small
+
+  - id: native_binding
+    label: "bifromq-native-binding\n(Rust/JNI)"
+    type: service
+    module: foundation
+    size: small
+
+edges:
+  # External -> Protocol
+  - from: mqtt_v3
+    to: mqtt_server
+    type: primary
+    label: "TCP/TLS"
+
+  - from: mqtt_v5
+    to: mqtt_server
+    type: primary
+    label: "TCP/TLS"
+
+  - from: mqtt_ws
+    to: mqtt_server
+    type: primary
+    label: "WS/WSS"
+
+  - from: mqtt_quic
+    to: mqtt_server
+    type: primary
+    label: "QUIC"
+
+  # External -> API
+  - from: http_admin
+    to: apiserver
+    type: primary
+
+  # Protocol -> Business
+  - from: mqtt_server
+    to: dist
+    type: primary
+    label: "Pub/Sub"
+
+  - from: mqtt_server
+    to: inbox
+    type: primary
+    label: "Queue"
+
+  - from: mqtt_server
+    to: session_dict
+    type: primary
+    label: "Session"
+
+  - from: mqtt_server
+    to: retain
+    type: primary
+    label: "Retain"
+
+  - from: deliverer
+    to: mqtt_server
+    type: data
+    label: "Deliver"
+
+  # Business -> Business
+  - from: dist
+    to: deliverer
+    type: data
+    label: "Route"
+
+  - from: dist
+    to: inbox
+    type: data
+
+  - from: dist
+    to: retain
+    type: data
+
+  - from: inbox
+    to: session_dict
+    type: data
+    label: "LWT"
+
+  # Business -> Storage
+  - from: dist
+    to: kv_store_server
+    type: data
+    label: "CoProc"
+
+  - from: inbox
+    to: kv_store_server
+    type: data
+    label: "CoProc"
+
+  - from: retain
+    to: kv_store_server
+    type: data
+    label: "CoProc"
+
+  - from: session_dict
+    to: kv_store_server
+    type: data
+
+  # Storage internal
+  - from: kv_store_server
+    to: kv_raft
+    type: dependency
+    label: "Consensus"
+
+  - from: kv_raft
+    to: kv_rocksdb
+    type: data
+    label: "WAL"
+
+  - from: kv_raft
+    to: kv_memory
+    type: optional
+
+  - from: kv_store_server
+    to: kv_coproc_api
+    type: dependency
+
+  - from: kv_meta
+    to: kv_store_client
+    type: dependency
+
+  - from: kv_balance
+    to: kv_meta
+    type: dependency
+
+  # Cluster/RPC connections
+  - from: cluster
+    to: rpc_server
+    type: dependency
+
+  - from: rpc_client
+    to: rpc_server
+    type: bidirectional
+
+  - from: rpc_inproc
+    to: rpc_server
+    type: optional
+
+  - from: rpc_traffic
+    to: rpc_server
+    type: dependency
+
+  - from: crdt
+    to: cluster
+    type: data
+    label: "Gossip"
+
+  - from: scheduler
+    to: rpc_client
+    type: dependency
+
+  # Storage -> Cluster/RPC
+  - from: kv_store_server
+    to: rpc_server
+    type: dependency
+
+  - from: kv_store_client
+    to: rpc_client
+    type: dependency
+
+  # Business -> Cluster/RPC
+  - from: dist
+    to: rpc_client
+    type: dependency
+
+  - from: inbox
+    to: rpc_client
+    type: dependency
+
+  - from: retain
+    to: rpc_client
+    type: dependency
+
+  - from: session_dict
+    to: rpc_client
+    type: dependency
+
+  - from: deliverer
+    to: rpc_client
+    type: dependency
+
+  - from: apiserver
+    to: rpc_client
+    type: dependency
+
+  - from: mqtt_server
+    to: rpc_client
+    type: dependency
+
+  # Plugin connections
+  - from: plugin_mgr
+    to: plugin_auth
+    type: optional
+
+  - from: plugin_mgr
+    to: plugin_balancer
+    type: optional
+
+  - from: plugin_mgr
+    to: plugin_event
+    type: optional
+
+  - from: plugin_mgr
+    to: plugin_throttle
+    type: optional
+
+  - from: plugin_mgr
+    to: plugin_setting
+    type: optional
+
+  - from: plugin_mgr
+    to: plugin_subbroker
+    type: optional
+
+  - from: mqtt_server
+    to: plugin_auth
+    type: data
+    label: "Auth"
+
+  - from: mqtt_server
+    to: plugin_balancer
+    type: data
+    label: "Balance"
+
+  - from: mqtt_server
+    to: plugin_throttle
+    type: data
+    label: "Throttle"
+
+  - from: mqtt_server
+    to: plugin_setting
+    type: data
+    label: "Settings"
+
+  - from: dist
+    to: plugin_subbroker
+    type: data
+    label: "Delegate"
+
+  - from: plugin_event
+    to: apiserver
+    type: data
+    label: "Events"
+
+  # Assembly -> All
+  - from: starter
+    to: apiserver
+    type: dependency
+    label: "Guice"
+
+  - from: starter
+    to: mqtt_server
+    type: dependency
+    label: "Guice"
+
+  - from: starter
+    to: dist
+    type: dependency
+    label: "Guice"
+
+  - from: starter
+    to: inbox
+    type: dependency
+    label: "Guice"
+
+  - from: starter
+    to: retain
+    type: dependency
+    label: "Guice"
+
+  - from: starter
+    to: session_dict
+    type: dependency
+    label: "Guice"
+
+  - from: starter
+    to: cluster
+    type: dependency
+    label: "Guice"
+
+  - from: starter
+    to: plugin_mgr
+    type: dependency
+    label: "Guice"
+
+  # Foundation -> Upper layers
+  - from: common_type
+    to: rpc_inproc
+    type: dependency
+
+  - from: common_type
+    to: cluster
+    type: dependency
+
+  - from: hlc
+    to: kv_raft
+    type: dependency
+
+  - from: base_env
+    to: cluster
+    type: dependency
+
+  - from: metrics
+    to: starter
+    type: dependency
+
+  - from: native_binding
+    to: dist
+    type: dependency
+    label: "TopicMatch"
+
+  - from: native_binding
+    to: kv_rocksdb
+    type: dependency
+    label: "Encoding"
+
+  - from: sysprops
+    to: starter
+    type: dependency
+
+  - from: hookloader
+    to: plugin_mgr
+    type: dependency

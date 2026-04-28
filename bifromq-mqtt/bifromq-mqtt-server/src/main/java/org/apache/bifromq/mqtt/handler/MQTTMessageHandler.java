@@ -30,7 +30,8 @@ import org.apache.bifromq.mqtt.handler.quic.QUICStreamRouter;
 
 @Slf4j
 public abstract class MQTTMessageHandler extends ChannelDuplexHandler {
-    private static final int DEFAULT_FLUSH_AFTER_FLUSHES = 128;
+    private static final int DEFAULT_FLUSH_AFTER_FLUSHES =
+        Integer.getInteger("bifromq.mqtt.flush_batch_size", 128);
     private final int explicitFlushAfterFlushes;
     private final Runnable flushTask;
     protected ChannelHandlerContext ctx;

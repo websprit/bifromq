@@ -134,6 +134,15 @@ class InboxWriterPipeline extends ResponsePipeline<SendRequest, SendReply> {
             });
     }
 
+    @Override
+    protected void afterClose() {
+        WriteTask task;
+        while ((task = tasks.poll()) != null) {
+            task.replyFuture.cancel(false);
+            task.onDone.completeExceptionally(new IllegalStateException("Pipeline closed"));
+        }
+    }
+
     interface IWriteCallback {
         void afterWrite(TenantInboxInstance tenantInboxInstance, String delivererKey, long now);
     }

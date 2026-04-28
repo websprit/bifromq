@@ -66,6 +66,7 @@ import static org.apache.bifromq.util.TopicUtil.isValidTopicFilter;
 import static org.apache.bifromq.util.TopicUtil.isWildcardTopicFilter;
 
 import com.google.common.collect.Sets;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -81,6 +82,7 @@ import io.netty.handler.codec.mqtt.MqttUnsubscribeMessage;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
@@ -185,7 +187,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
     private final Condition oomCondition;
     private final long idleTimeoutNanos;
     private final MPSThrottler throttler;
-    private final Set<CompletableFuture<?>> fgTasks = new HashSet<>();
+    private final Set<CompletableFuture<?>> fgTasks = ConcurrentHashMap.newKeySet();
     private final FutureTracker bgTasks = new FutureTracker();
     private final Set<Integer> inUsePacketIds = new HashSet<>();
     private final IMQTTMessageSizer sizer;
@@ -1085,12 +1087,10 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                     .clientInfo(clientInfo()));
             return;
         }
-        // Multi-stream: check target data stream writability; single-stream/TCP: check
-        // channel
-        boolean writable = isMultiStream()
-                ? streamRouter.resolveStream(msg.topic()).isWritable()
-                : ctx.channel().isWritable();
-        if (!writable) {
+        // Multi-stream: check target data stream writability; single-stream/TCP: check channel.
+        boolean multiStream = isMultiStream();
+        Channel targetChannel = multiStream ? streamRouter.resolveStream(msg.topic()) : ctx.channel();
+        if (!targetChannel.isWritable()) {
             eventCollector.report(getLocal(QoS0Dropped.class)
                     .reason(DropReason.Overflow)
                     .isRetain(msg.isRetain())
@@ -1103,9 +1103,12 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         }
         memUsage.addAndGet(msgSize);
         // Multi-stream: route PUBLISH to data stream; single-stream/TCP: write to ctx
-        ChannelFuture writeFuture = isMultiStream()
-                ? writeToStream(streamRouter.resolveStream(msg.topic()), pubMsg)
+        ChannelFuture writeFuture = multiStream
+                ? writeToStream(targetChannel, pubMsg)
                 : write(pubMsg);
+        if (multiStream) {
+            flushStream(targetChannel);
+        }
         writeFuture.addListener(f -> {
             memUsage.addAndGet(-msgSize);
             if (f.isSuccess()) {

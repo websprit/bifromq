@@ -76,7 +76,7 @@ class MQTTBroker implements IMQTTBroker {
     private final EventLoopGroup bossGroup;
     private final EventLoopGroup workerGroup;
     private final RateLimiter connRateLimiter;
-    private MQTTSessionContext sessionContext;
+    private volatile MQTTSessionContext sessionContext;
     private ChannelFuture tcpChannelF;
     private ChannelFuture tlsChannelF;
     private ChannelFuture wsChannelF;
@@ -91,8 +91,6 @@ class MQTTBroker implements IMQTTBroker {
         workerGroup = NettyEnv.createEventLoopGroup(builder.mqttWorkerELGThreads, "mqtt-worker-elg");
         new NettyEventExecutorMetrics(workerGroup).bindTo(Metrics.globalRegistry);
         connRateLimiter = RateLimiter.create(builder.connectRateLimit);
-        new NettyEventExecutorMetrics(bossGroup).bindTo(Metrics.globalRegistry);
-        new NettyEventExecutorMetrics(workerGroup).bindTo(Metrics.globalRegistry);
         userPropsCustomizerFactory = new UserPropsCustomizerFactory(builder.userPropsCustomizerFactoryConfig);
         sessionServer = ILocalSessionServer.builder()
                 .rpcServerBuilder(builder.rpcServerBuilder)
@@ -155,6 +153,11 @@ class MQTTBroker implements IMQTTBroker {
     @Override
     public final void close() {
         log.info("Stopping MQTT broker");
+        if (bossGroup.next().inEventLoop() || workerGroup.next().inEventLoop()) {
+            log.warn("MQTTBroker.close() called from EventLoop thread, offloading to avoid deadlock");
+            new Thread(this::close, "mqtt-broker-close").start();
+            return;
+        }
         if (tcpChannelF != null) {
             tcpChannelF.channel().close().syncUninterruptibly();
             log.debug("Stopped accepting mqtt connection over tcp channel");
@@ -361,7 +364,7 @@ class MQTTBroker implements IMQTTBroker {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
             if (msg instanceof DatagramPacket packet) {
-                log.info("QUIC UDP datagram received: local={}, remote={}, bytes={}",
+                log.trace("QUIC UDP datagram received: local={}, remote={}, bytes={}",
                     packet.recipient(), packet.sender(), packet.content().readableBytes());
             }
             super.channelRead(ctx, msg);

@@ -63,8 +63,8 @@ class EMALong {
         if (decayDelayNanos < Long.MAX_VALUE) {
             long dt = now - s.lastTs;
             if (dt > decayDelayNanos) {
-                double seconds = Math.ceil((dt - decayDelayNanos) / NANOS_PER_SECOND);
-                double decayed = s.ema * Math.pow(decay, seconds);
+                double elapsedSecs = (dt - decayDelayNanos) / (double) NANOS_PER_SECOND;
+                double decayed = s.ema * Math.pow(decay, elapsedSecs);
                 return decayed < 1.0 ? 0L : Math.round(decayed);
             }
         }

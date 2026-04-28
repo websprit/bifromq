@@ -82,7 +82,7 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
 
     @Override
     protected void initChannel(QuicStreamChannel ch) {
-        log.info("QUIC stream init start: streamId={}, type={}, parent={}, local={}, remote={}",
+        log.debug("QUIC stream init start: streamId={}, type={}, parent={}, local={}, remote={}",
             ch.streamId(), ch.type(), ch.parent(), ch.localAddress(), ch.remoteAddress());
         // Only bidirectional streams carry MQTT; close unidirectional streams
         if (ch.type() != QuicStreamType.BIDIRECTIONAL) {
@@ -114,15 +114,19 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
             if (streamId == 0) {
                 // Stream 0 is the control stream
                 router.setControlStream(ch);
-                log.info("QUIC control stream registered: streamId={}", streamId);
+                log.debug("QUIC control stream registered: streamId={}", streamId);
             } else {
                 // Data streams: map QUIC stream ID to bucket index
-                // QUIC bidirectional stream IDs: 0, 4, 8, 12, ... (client-initiated)
-                // We use streamId/4 - 1 to get bucket index (skip stream 0)
+                // Only client-initiated bidirectional streams (streamId % 4 == 0) are expected
+                if ((streamId & 0x3) != 0) {
+                    log.warn("Unexpected non-client-initiated bidirectional stream: streamId={}, closing", streamId);
+                    ch.close();
+                    return;
+                }
                 int bucketIndex = (int) ((streamId / 4) - 1) % router.dataStreamCount();
                 if (bucketIndex >= 0 && bucketIndex < router.dataStreamCount()) {
                     router.setDataStream(bucketIndex, ch);
-                    log.info("QUIC data stream registered: streamId={}, bucket={}", streamId, bucketIndex);
+                    log.debug("QUIC data stream registered: streamId={}, bucket={}", streamId, bucketIndex);
                 }
             }
         }
@@ -137,7 +141,7 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
         ch.pipeline().addLast(MQTTPreludeHandler.NAME,
                 new MQTTPreludeHandler(connectTimeoutSeconds));
 
-        log.info("QUIC stream pipeline initialized: streamId={}, remote={}, handlers={}",
+        log.debug("QUIC stream pipeline initialized: streamId={}, remote={}, handlers={}",
             ch.streamId(), peerAddr, ch.pipeline().names());
     }
 }

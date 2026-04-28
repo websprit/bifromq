@@ -1,0 +1,174 @@
+graph TB
+    subgraph EXT["External Clients"]
+        C1[MQTT 3.1/3.1.1 Clients]
+        C2[MQTT 5.0 Clients]
+        C3[MQTT over WS/WSS]
+        C4[MQTT over QUIC]
+        C5[HTTP/gRPC Admin Clients]
+    end
+
+    subgraph ASSEMBLY["Assembly Layer (build/)"]
+        ST[StandaloneStarter<br/>Guice DI Container]
+        PD[build-plugin-demo]
+    end
+
+    subgraph PLUGIN["Plugin Layer (PF4J)"]
+        PM[plugin-manager]
+        PA[plugin-auth-provider]
+        PB[plugin-client-balancer]
+        PE[plugin-event-collector]
+        PT[plugin-resource-throttler]
+        PS[plugin-setting-provider]
+        PSB[plugin-sub-broker]
+    end
+
+    subgraph API["API Layer"]
+        AP[bifromq-apiserver<br/>HTTP / gRPC Admin API]
+    end
+
+    subgraph PROTOCOL["Protocol Layer (bifromq-mqtt/)"]
+        MS[bifromq-mqtt-server<br/>Netty Handlers: v3 | v5 | WS | QUIC]
+        MBC[bifromq-mqtt-broker-client]
+        MBR[bifromq-mqtt-broker-rpc-definition]
+        MSP[bifromq-mqtt-server-spi]
+    end
+
+    subgraph BUSINESS["Business Services Layer"]
+        DIST[bifromq-dist<br/>Topic Matching · Subscription Routing<br/>client · rpc · coproc · worker · server]
+        INBOX[bifromq-inbox<br/>Per-Tenant/Client Message Queueing<br/>client · rpc · coproc · store · server]
+        RETAIN[bifromq-retain<br/>Retained Message Storage<br/>client · rpc · coproc · store · gc · server]
+        SD[bifromq-session-dict<br/>MQTT Session Registry<br/>client · rpc · server]
+        DEL[bifromq-deliverer<br/>Message Delivery Batching & Pipelining]
+    end
+
+    subgraph STORAGE["Storage Layer (base-kv/)"]
+        KV_SRV[base-kv-store-server<br/>Coprocessor Host]
+        KV_CLI[base-kv-store-client]
+        KV_RAFT[base-kv-raft<br/>Custom Raft Consensus]
+        KV_RDB[base-kv-local-engine-rocksdb<br/>GroupCommitWriteQueue]
+        KV_MEM[base-kv-local-engine-memory]
+        KV_COPROC[base-kv-store-coproc-api]
+        KV_META[base-kv-meta-service<br/>Metadata Management]
+        KV_BAL[base-kv-store-balance-controller]
+    end
+
+    subgraph CLUSTER["Cluster & RPC Layer"]
+        CL[base-cluster<br/>Membership · Failure Detection<br/>UDP/TCP Transport]
+        RPC_S[base-rpc-server]
+        RPC_C[base-rpc-client]
+        RPC_I[base-rpc-grpc-inproc]
+        RPC_T[base-rpc-traffic-governor]
+        CRDT[base-crdt<br/>ORMap · CCounter · Anti-Entropy Gossip]
+        SCHED[base-scheduler<br/>Batching Primitives]
+    end
+
+    subgraph FOUNDATION["Foundation Layer"]
+        ENV[base-env · base-util · base-logger]
+        HLC[base-hlc<br/>Hybrid Logical Clock]
+        HL[base-hookloader]
+        CT[bifromq-common-type<br/>Protobuf Types]
+        MET[bifromq-metrics<br/>Micrometer / Prometheus]
+        SP[bifromq-sysprops]
+        NB[bifromq-native-binding<br/>Rust / JNI]
+    end
+
+    %% External to Protocol/API
+    C1 -->|TCP/TLS| MS
+    C2 -->|TCP/TLS| MS
+    C3 -->|WS/WSS| MS
+    C4 -->|QUIC| MS
+    C5 -->|HTTP/gRPC| AP
+
+    %% Protocol to Business
+    MS -->|Pub/Sub| DIST
+    MS -->|Queue| INBOX
+    MS -->|Session| SD
+    MS -->|Retain| RETAIN
+    DEL -->|Deliver| MS
+
+    %% Business internal
+    DIST -->|Route| DEL
+    DIST --> INBOX
+    DIST --> RETAIN
+    INBOX -->|LWT| SD
+
+    %% Business to Storage (CoProc Pattern)
+    DIST -.->|CoProc| KV_SRV
+    INBOX -.->|CoProc| KV_SRV
+    RETAIN -.->|CoProc| KV_SRV
+    SD --> KV_SRV
+
+    %% Storage internal
+    KV_SRV -->|Consensus| KV_RAFT
+    KV_RAFT -->|WAL| KV_RDB
+    KV_RAFT -.-> KV_MEM
+    KV_SRV --> KV_COPROC
+    KV_META --> KV_CLI
+    KV_BAL --> KV_META
+
+    %% Cluster/RPC connections
+    CL --> RPC_S
+    RPC_C <-->|gRPC| RPC_S
+    RPC_I -.-> RPC_S
+    RPC_T --> RPC_S
+    CRDT -->|Gossip| CL
+    SCHED --> RPC_C
+
+    %% Storage to Cluster
+    KV_SRV --> RPC_S
+    KV_CLI --> RPC_C
+
+    %% Business to Cluster
+    DIST --> RPC_C
+    INBOX --> RPC_C
+    RETAIN --> RPC_C
+    SD --> RPC_C
+    DEL --> RPC_C
+    AP --> RPC_C
+    MS --> RPC_C
+
+    %% Plugin connections
+    PM -.-> PA
+    PM -.-> PB
+    PM -.-> PE
+    PM -.-> PT
+    PM -.-> PS
+    PM -.-> PSB
+
+    MS -->|Auth| PA
+    MS -->|Balance| PB
+    MS -->|Throttle| PT
+    MS -->|Settings| PS
+    DIST -->|Delegate| PSB
+    PE -->|Events| AP
+
+    %% Assembly to all
+    ST -->|Guice| AP
+    ST -->|Guice| MS
+    ST -->|Guice| DIST
+    ST -->|Guice| INBOX
+    ST -->|Guice| RETAIN
+    ST -->|Guice| SD
+    ST -->|Guice| CL
+    ST -->|Guice| PM
+
+    %% Foundation to upper
+    CT --> RPC_I
+    CT --> CL
+    HLC --> KV_RAFT
+    ENV --> CL
+    MET --> ST
+    NB -->|TopicMatch| DIST
+    NB -->|Encoding| KV_RDB
+    SP --> ST
+    HL --> PM
+
+    style EXT fill:#FEF3C7
+    style ASSEMBLY fill:#E0E7FF
+    style PLUGIN fill:#DBEAFE
+    style API fill:#DBEAFE
+    style PROTOCOL fill:#D1FAE5
+    style BUSINESS fill:#CFFAFE
+    style STORAGE fill:#F3E8FF
+    style CLUSTER fill:#FCE7F3
+    style FOUNDATION fill:#F3F4F6

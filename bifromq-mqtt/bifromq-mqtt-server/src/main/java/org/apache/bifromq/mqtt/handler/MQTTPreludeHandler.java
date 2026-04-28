@@ -84,6 +84,9 @@ public class MQTTPreludeHandler extends ChannelDuplexHandler {
         if (timeoutCloseTask != null) {
             timeoutCloseTask.cancel(true);
         }
+        if (closeConnectionTask != null) {
+            closeConnectionTask.cancel(false);
+        }
     }
 
     @Override
