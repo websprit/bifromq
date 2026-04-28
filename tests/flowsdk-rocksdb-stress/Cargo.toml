@@ -23,5 +23,6 @@ publish = false
 
 [dependencies]
 async-trait = "0.1"
-flowsdk = { path = "../../third-party/flowsdk", default-features = false }
+flowsdk = { path = "../../third-party/flowsdk", default-features = false, features = ["quic"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "process", "sync", "time"] }

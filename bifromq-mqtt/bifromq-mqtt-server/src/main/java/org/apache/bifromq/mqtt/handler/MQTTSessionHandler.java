@@ -526,16 +526,19 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
         long reqId = packetId > 0 ? packetId : sessionCtx.nanoTime();
         String topic = helper().getTopic(mqttMessage);
         int ingressMsgBytes = mqttMessage.fixedHeader().remainingLength() + 1;
-        log.info("PUBLISH received: reqId={}, sessionId={}, clientId={}, topic={}, qos={}, packetId={}, dup={}, retain={}, payloadBytes={}",
-            reqId,
-            userSessionId(clientInfo),
-            clientInfo.getMetadataOrDefault(MQTT_CLIENT_ID_KEY, ""),
-            topic,
-            mqttMessage.fixedHeader().qosLevel(),
-            packetId,
-            mqttMessage.fixedHeader().isDup(),
-            mqttMessage.fixedHeader().isRetain(),
-            mqttMessage.payload().readableBytes());
+        if (log.isDebugEnabled()) {
+            log.debug("PUBLISH received: reqId={}, sessionId={}, clientId={}, topic={}, qos={}, packetId={}, dup={}, " +
+                    "retain={}, payloadBytes={}",
+                reqId,
+                userSessionId(clientInfo),
+                clientInfo.getMetadataOrDefault(MQTT_CLIENT_ID_KEY, ""),
+                topic,
+                mqttMessage.fixedHeader().qosLevel(),
+                packetId,
+                mqttMessage.fixedHeader().isDup(),
+                mqttMessage.fixedHeader().isRetain(),
+                mqttMessage.payload().readableBytes());
+        }
         CompletableFuture<Void> pubFuture = (switch (mqttMessage.fixedHeader().qosLevel()) {
             case AT_MOST_ONCE -> handleQoS0Pub(reqId, topic, mqttMessage, ingressMsgBytes);
             case AT_LEAST_ONCE -> handleQoS1Pub(reqId, topic, mqttMessage, ingressMsgBytes);

@@ -31,11 +31,51 @@ use tokio::time::{sleep, Duration, Instant};
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 
+#[derive(Clone, Copy)]
+enum TransportMode {
+    Tcp,
+    Quic,
+}
+
+impl TransportMode {
+    fn from_env() -> Self {
+        match env_or("BIFROMQ_TRANSPORT", "tcp")
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "quic" => Self::Quic,
+            _ => Self::Tcp,
+        }
+    }
+
+    fn peer(self) -> String {
+        match self {
+            Self::Tcp => env_or("BIFROMQ_PEER", "localhost:11883"),
+            Self::Quic => env_or("BIFROMQ_PEER", "quic://127.0.0.1:11884"),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Tcp => "tcp",
+            Self::Quic => "quic",
+        }
+    }
+
+    fn default_mqtt_version(self) -> u8 {
+        match self {
+            Self::Tcp => 5,
+            Self::Quic => 3,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct Config {
     image: String,
     container: String,
     docker_cmd: Vec<String>,
+    transport: TransportMode,
     peer: String,
     username: String,
     start_container: bool,
@@ -53,6 +93,7 @@ struct Config {
 
 impl Config {
     fn from_env() -> Self {
+        let transport = TransportMode::from_env();
         Self {
             image: env_or(
                 "BIFROMQ_IMAGE",
@@ -63,16 +104,20 @@ impl Config {
                 .split_whitespace()
                 .map(ToString::to_string)
                 .collect(),
-            peer: env_or("BIFROMQ_PEER", "localhost:11883"),
+            transport,
+            peer: transport.peer(),
             username: env_or("BIFROMQ_USERNAME", ""),
             start_container: env_bool("BIFROMQ_START_CONTAINER", true),
             clients: env_usize("BIFROMQ_STRESS_CLIENTS", 80),
             publishers: env_usize("BIFROMQ_STRESS_PUBLISHERS", 8),
             messages_per_client: env_usize("BIFROMQ_STRESS_MESSAGES_PER_CLIENT", 60),
             payload_bytes: env_usize("BIFROMQ_STRESS_PAYLOAD_BYTES", 512),
-            mqtt_version: env_u8("BIFROMQ_STRESS_MQTT_VERSION", 5),
+            mqtt_version: env_u8(
+                "BIFROMQ_STRESS_MQTT_VERSION",
+                transport.default_mqtt_version(),
+            ),
             connect_timeout_ms: env_u64("BIFROMQ_STRESS_CONNECT_TIMEOUT_MS", 30_000),
-            op_timeout_ms: env_u64("BIFROMQ_STRESS_OP_TIMEOUT_MS", 15_000),
+            op_timeout_ms: env_u64("BIFROMQ_STRESS_OP_TIMEOUT_MS", 60_000),
             drain_timeout_secs: env_u64("BIFROMQ_STRESS_DRAIN_TIMEOUT_SECS", 90),
             ready_grace_secs: env_u64("BIFROMQ_STRESS_READY_GRACE_SECS", 15),
             run_id: env::var("BIFROMQ_STRESS_RUN_ID").unwrap_or_else(|_| {
@@ -128,12 +173,14 @@ impl TokioMqttEventHandler for Handler {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), DynError> {
+    init_crypto();
     let cfg = Config::from_env();
     let counters = Counters::new();
     let expected_messages = cfg.clients * cfg.messages_per_client;
     println!(
-        "FlowSDK RocksDB stress: peer={}, mqtt=v{}, clients={}, publishers={}, messages={}, payload={}B, run_id={}",
-        cfg.peer, cfg.mqtt_version, cfg.clients, cfg.publishers, expected_messages, cfg.payload_bytes, cfg.run_id
+        "FlowSDK RocksDB stress: transport={}, peer={}, mqtt=v{}, clients={}, publishers={}, messages={}, payload={}B, run_id={}",
+        cfg.transport.as_str(), cfg.peer, cfg.mqtt_version, cfg.clients, cfg.publishers, expected_messages,
+        cfg.payload_bytes, cfg.run_id
     );
 
     if cfg.start_container {
@@ -218,6 +265,8 @@ async fn start_container(cfg: &Config) -> io::Result<()> {
             "11883:1883",
             "-p",
             "11884:1884",
+            "-p",
+            "11884:1884/udp",
             "-p",
             "18080:8080",
             "-p",
@@ -331,6 +380,9 @@ async fn connect_client(
             connect_timeout_ms: Some(cfg.connect_timeout_ms),
             subscribe_timeout_ms: Some(cfg.op_timeout_ms),
             publish_ack_timeout_ms: Some(cfg.op_timeout_ms),
+            quic_insecure_skip_verify: true,
+            quic_enable_0rtt: false,
+            quic_datagram_receive_buffer_size: 0,
             ..TokioAsyncClientConfig::default()
         },
     )
@@ -415,6 +467,10 @@ fn is_publish_success(result: &flowsdk::mqtt_client::PublishResult) -> bool {
     result
         .reason_code
         .is_none_or(|code| code == 0 || code == 0x10)
+}
+
+fn init_crypto() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
 fn env_or(name: &str, default: &str) -> String {

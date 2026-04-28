@@ -32,7 +32,7 @@ The harness starts a BifroMQ container, waits for MQTT and KV range bootstrap, t
 The workload exercises the packaged RocksDB JNI runtime, retain store writes, dist subscription
 writes, WAL/data directories, and group commit paths used by RocksDB-backed KV stores.
 
-## Run
+## Run TCP
 
 ```bash
 BIFROMQ_DOCKER_CMD='rdctl shell docker' \
@@ -45,11 +45,58 @@ cargo run --release --manifest-path tests/flowsdk-rocksdb-stress/Cargo.toml
 
 Use plain Docker by omitting `BIFROMQ_DOCKER_CMD` when the local Docker socket is available.
 
+## Run QUIC
+
+The QUIC listener uses TLS and ALPN `mqtt`. The harness configures FlowSDK to skip certificate
+verification because the packaged image uses a self-signed test certificate.
+
+QUIC defaults to MQTT 3.1.1 for the retained-write stress path. `BIFROMQ_STRESS_MQTT_VERSION=5`
+currently reproduces a FlowSDK/BifroMQ interoperability stall after roughly 200 QoS1 publishes per
+QUIC publisher, while the same workload passes over TCP with MQTT 5 and over QUIC with MQTT 3.1.1.
+
+On Docker Desktop or native Linux Docker, this can usually run through the published UDP port:
+
+```bash
+BIFROMQ_DOCKER_CMD='rdctl shell docker' \
+BIFROMQ_TRANSPORT=quic \
+BIFROMQ_STRESS_CLIENTS=20 \
+BIFROMQ_STRESS_PUBLISHERS=4 \
+BIFROMQ_STRESS_MESSAGES_PER_CLIENT=20 \
+cargo run --release --manifest-path tests/flowsdk-rocksdb-stress/Cargo.toml
+```
+
+If QUIC times out on macOS/Rancher Desktop, run the FlowSDK client in a Linux container that shares
+the broker container network namespace. This bypasses host UDP port forwarding and connects to the
+broker's container-local UDP 1884 directly:
+
+```bash
+BIFROMQ_DOCKER_CMD='rdctl shell docker' \
+BIFROMQ_TRANSPORT=quic \
+BIFROMQ_STRESS_CLIENTS=20 \
+BIFROMQ_STRESS_PUBLISHERS=4 \
+BIFROMQ_STRESS_MESSAGES_PER_CLIENT=20 \
+cargo run --release --manifest-path tests/flowsdk-rocksdb-stress/Cargo.toml
+
+rdctl shell docker run --rm --network container:bifromq-flowsdk-rocksdb-stress \
+  -v "$PWD:/work" -w /work \
+  -e CARGO_TARGET_DIR=/tmp/flowsdk-target \
+  -e BIFROMQ_START_CONTAINER=false \
+  -e BIFROMQ_TRANSPORT=quic \
+  -e BIFROMQ_PEER=quic://127.0.0.1:1884 \
+  -e BIFROMQ_STRESS_CLIENTS=20 \
+  -e BIFROMQ_STRESS_PUBLISHERS=4 \
+  -e BIFROMQ_STRESS_MESSAGES_PER_CLIENT=20 \
+  rust:1.95-bookworm \
+  cargo run --release --manifest-path tests/flowsdk-rocksdb-stress/Cargo.toml
+```
+
 ## Useful Options
 
 - `BIFROMQ_IMAGE`: image to test, defaults to `ghcr.io/websprit/bifromq:feature-perf-optimization`.
 - `BIFROMQ_CONTAINER`: temporary container name, defaults to `bifromq-flowsdk-rocksdb-stress`.
 - `BIFROMQ_PEER`: MQTT endpoint, defaults to `localhost:11883`.
+- `BIFROMQ_TRANSPORT`: `tcp` or `quic`, defaults to `tcp`.
 - `BIFROMQ_START_CONTAINER`: set to `false` to test an already-running broker.
 - `BIFROMQ_STRESS_READY_GRACE_SECS`: extra wait after MQTT accepts connections so KV ranges can finish bootstrap.
-- `BIFROMQ_STRESS_MQTT_VERSION`: MQTT version, defaults to `5`.
+- `BIFROMQ_STRESS_OP_TIMEOUT_MS`: per-operation timeout, defaults to `60000`.
+- `BIFROMQ_STRESS_MQTT_VERSION`: MQTT version. Defaults to `5` for TCP and `3` for QUIC.
