@@ -63,9 +63,13 @@ impl TransportMode {
     }
 
     fn default_mqtt_version(self) -> u8 {
+        5
+    }
+
+    fn default_publishers(self) -> usize {
         match self {
-            Self::Tcp => 5,
-            Self::Quic => 3,
+            Self::Tcp => 8,
+            Self::Quic => 24,
         }
     }
 }
@@ -83,6 +87,7 @@ struct Config {
     publishers: usize,
     messages_per_client: usize,
     payload_bytes: usize,
+    subscribe_qos: u8,
     mqtt_version: u8,
     connect_timeout_ms: u64,
     op_timeout_ms: u64,
@@ -109,9 +114,10 @@ impl Config {
             username: env_or("BIFROMQ_USERNAME", ""),
             start_container: env_bool("BIFROMQ_START_CONTAINER", true),
             clients: env_usize("BIFROMQ_STRESS_CLIENTS", 80),
-            publishers: env_usize("BIFROMQ_STRESS_PUBLISHERS", 8),
+            publishers: env_usize("BIFROMQ_STRESS_PUBLISHERS", transport.default_publishers()),
             messages_per_client: env_usize("BIFROMQ_STRESS_MESSAGES_PER_CLIENT", 60),
             payload_bytes: env_usize("BIFROMQ_STRESS_PAYLOAD_BYTES", 512),
+            subscribe_qos: env_u8("BIFROMQ_STRESS_SUB_QOS", 1).min(2),
             mqtt_version: env_u8(
                 "BIFROMQ_STRESS_MQTT_VERSION",
                 transport.default_mqtt_version(),
@@ -331,7 +337,7 @@ async fn create_subscribers(
     for (idx, client) in clients.iter().enumerate() {
         let topic = topic_for(cfg, idx);
         client
-            .subscribe_sync_with_timeout(&topic, 1, cfg.op_timeout_ms)
+            .subscribe_sync_with_timeout(&topic, cfg.subscribe_qos, cfg.op_timeout_ms)
             .await?;
     }
     Ok(clients)
@@ -419,11 +425,23 @@ async fn publish_retained_load(cfg: &Config, counters: Counters) -> Result<usize
                 message.extend_from_slice(format!(":{publisher_idx}:{seq}").as_bytes());
                 let result = client
                     .publish_sync_with_timeout(&topic, &message, 1, true, cfg.op_timeout_ms)
-                    .await?;
+                    .await
+                    .map_err(|e| {
+                        format!(
+                            "publisher {publisher_idx} timed out or failed at seq={seq}, ok={ok}: {e}"
+                        )
+                    })?;
                 if !is_publish_success(&result) {
-                    return Err(format!("publish failed: {:?}", result.reason_code).into());
+                    return Err(format!(
+                        "publisher {publisher_idx} publish failed at seq={seq}, ok={ok}: {:?}",
+                        result.reason_code
+                    )
+                    .into());
                 }
                 ok += 1;
+                if ok % 100 == 0 {
+                    println!("Publisher {publisher_idx} completed {ok} publishes");
+                }
             }
             let _ = client.disconnect().await;
             let _ = client.shutdown().await;

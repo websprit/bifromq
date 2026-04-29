@@ -118,7 +118,7 @@ impl InflightQueue {
                 entry.packet,
                 MqttPacket::Publish5(_) | MqttPacket::Publish3(_)
             ) {
-                self.publish_count -= 1;
+                self.publish_count = self.publish_count.saturating_sub(1);
             }
             Some(entry)
         } else {

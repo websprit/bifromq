@@ -1485,7 +1485,7 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                                     }
                                     decReceivingCount();
                                     inUsePacketIds.remove(packetId);
-                                    if (ctx.channel().isActive() && ctx.channel().isWritable()) {
+                                    if (ctx.channel().isActive()) {
                                         handleProtocolResponse(helper()
                                                 .onQoS1PubHandled(pubResult, message,
                                                         checkResult.getGranted().getUserProps()));
@@ -1545,25 +1545,23 @@ public abstract class MQTTSessionHandler extends MQTTMessageHandler implements I
                                                 reqId, userSessionId(clientInfo), topic);
                                     }
                                     if (ctx.channel().isActive()) {
-                                        if (ctx.channel().isWritable()) {
-                                            if (pubResult == PubResult.BACK_PRESSURE_REJECTED
-                                                    || pubResult == PubResult.TRY_LATER
-                                                    || pubResult == PubResult.ERROR) {
-                                                decReceivingCount();
-                                                inUsePacketIds.remove(packetId);
-                                            }
-                                            handleProtocolResponse(helper().onQoS2PubHandled(pubResult, message,
-                                                    checkResult.getGranted().getUserProps()));
-                                        } else {
+                                        if (pubResult == PubResult.BACK_PRESSURE_REJECTED
+                                                || pubResult == PubResult.TRY_LATER
+                                                || pubResult == PubResult.ERROR) {
                                             decReceivingCount();
                                             inUsePacketIds.remove(packetId);
-                                            eventCollector.report(getLocal(QoS2PubRecDropped.class)
-                                                    .reqId(reqId)
-                                                    .isDup(message.fixedHeader().isDup())
-                                                    .topic(topic)
-                                                    .size(message.payload().readableBytes())
-                                                    .clientInfo(clientInfo));
                                         }
+                                        handleProtocolResponse(helper().onQoS2PubHandled(pubResult, message,
+                                                checkResult.getGranted().getUserProps()));
+                                    } else {
+                                        decReceivingCount();
+                                        inUsePacketIds.remove(packetId);
+                                        eventCollector.report(getLocal(QoS2PubRecDropped.class)
+                                                .reqId(reqId)
+                                                .isDup(message.fixedHeader().isDup())
+                                                .topic(topic)
+                                                .size(message.payload().readableBytes())
+                                                .clientInfo(clientInfo));
                                     }
                                 });
                     }

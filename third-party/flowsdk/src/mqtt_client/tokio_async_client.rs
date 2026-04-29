@@ -1806,7 +1806,11 @@ impl TokioClientWorker {
             stream
                 .write_all(data)
                 .await
-                .map_err(|e| MqttClientError::from_io_error(e, "transport write"))
+                .map_err(|e| MqttClientError::from_io_error(e, "transport write"))?;
+            stream
+                .flush()
+                .await
+                .map_err(|e| MqttClientError::from_io_error(e, "transport flush"))
         } else {
             Err(MqttClientError::NotConnected)
         }
@@ -2359,6 +2363,13 @@ impl TokioClientWorker {
         if let Some(tx) = self.pending_ping.take() {
             let _ = tx.send(PingResult { success: false });
         }
+
+        // Drop outstanding synchronous operations so callers unblock immediately.
+        // Otherwise a broker-initiated DISCONNECT leaves publish/subscribe futures
+        // waiting until their operation timeout fires.
+        self.pending_publishes.clear();
+        self.pending_subscribes_sync.clear();
+        self.pending_unsubscribes_sync.clear();
 
         self.event_handler.on_connection_lost().await;
 

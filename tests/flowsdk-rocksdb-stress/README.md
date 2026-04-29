@@ -50,9 +50,9 @@ Use plain Docker by omitting `BIFROMQ_DOCKER_CMD` when the local Docker socket i
 The QUIC listener uses TLS and ALPN `mqtt`. The harness configures FlowSDK to skip certificate
 verification because the packaged image uses a self-signed test certificate.
 
-QUIC defaults to MQTT 3.1.1 for the retained-write stress path. `BIFROMQ_STRESS_MQTT_VERSION=5`
-currently reproduces a FlowSDK/BifroMQ interoperability stall after roughly 200 QoS1 publishes per
-QUIC publisher, while the same workload passes over TCP with MQTT 5 and over QUIC with MQTT 3.1.1.
+QUIC defaults to MQTT 5. The packaged broker defaults `MsgPubPerSec` to 200 per client, so keep
+`BIFROMQ_STRESS_PUBLISHERS` high enough for large runs or raise the broker setting when measuring
+single-client publish throughput.
 
 On Docker Desktop or native Linux Docker, this can usually run through the published UDP port:
 
@@ -99,4 +99,6 @@ rdctl shell docker run --rm --network container:bifromq-flowsdk-rocksdb-stress \
 - `BIFROMQ_START_CONTAINER`: set to `false` to test an already-running broker.
 - `BIFROMQ_STRESS_READY_GRACE_SECS`: extra wait after MQTT accepts connections so KV ranges can finish bootstrap.
 - `BIFROMQ_STRESS_OP_TIMEOUT_MS`: per-operation timeout, defaults to `60000`.
-- `BIFROMQ_STRESS_MQTT_VERSION`: MQTT version. Defaults to `5` for TCP and `3` for QUIC.
+- `BIFROMQ_STRESS_MQTT_VERSION`: MQTT version. Defaults to `5`.
+- `BIFROMQ_STRESS_PUBLISHERS`: publisher clients. Defaults to `8` for TCP and `24` for QUIC.
+- `BIFROMQ_STRESS_SUB_QOS`: subscription QoS for online subscribers, defaults to `1`.
