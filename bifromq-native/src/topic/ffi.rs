@@ -22,7 +22,7 @@
 //! Results are written to pre-allocated buffers.
 
 use std::slice;
-use super::trie::TopicTrie;
+use super::trie::{TopicFilterIterator, TopicTrie};
 use super::parser;
 use super::validator;
 
@@ -34,6 +34,11 @@ use super::validator;
 #[unsafe(no_mangle)]
 pub extern "C" fn topic_trie_new() -> *mut TopicTrie {
     Box::into_raw(Box::new(TopicTrie::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn topic_trie_new_global(is_global: u8) -> *mut TopicTrie {
+    Box::into_raw(Box::new(TopicTrie::new_with_global(is_global != 0)))
 }
 
 /// Free a TopicTrie.
@@ -127,6 +132,112 @@ pub unsafe extern "C" fn topic_trie_match(
         buf[i] = val;
     }
     results.len() as i32
+}
+
+// ============================================================
+// TopicFilterIterator operations
+// ============================================================
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_filter_iter_new(trie: *const TopicTrie) -> *mut TopicFilterIterator {
+    let trie = unsafe { &*trie };
+    Box::into_raw(Box::new(trie.filter_iterator()))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_filter_iter_free(iter: *mut TopicFilterIterator) {
+    if !iter.is_null() {
+        unsafe { drop(Box::from_raw(iter)); }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_filter_iter_seek(
+    iter: *mut TopicFilterIterator,
+    levels_ptr: *const CLevel,
+    levels_count: u32,
+) -> i32 {
+    let iter = unsafe { &mut *iter };
+    let levels = unsafe { levels_to_strs(levels_ptr, levels_count) };
+    let level_refs: Vec<&str> = levels.iter().map(|s| *s).collect();
+    iter.seek(&level_refs);
+    if iter.is_valid() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_filter_iter_seek_prev(
+    iter: *mut TopicFilterIterator,
+    levels_ptr: *const CLevel,
+    levels_count: u32,
+) -> i32 {
+    let iter = unsafe { &mut *iter };
+    let levels = unsafe { levels_to_strs(levels_ptr, levels_count) };
+    let level_refs: Vec<&str> = levels.iter().map(|s| *s).collect();
+    iter.seek_prev(&level_refs);
+    if iter.is_valid() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_filter_iter_next(iter: *mut TopicFilterIterator) -> i32 {
+    let iter = unsafe { &mut *iter };
+    iter.next();
+    if iter.is_valid() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_filter_iter_prev(iter: *mut TopicFilterIterator) -> i32 {
+    let iter = unsafe { &mut *iter };
+    iter.prev();
+    if iter.is_valid() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_filter_iter_is_valid(iter: *const TopicFilterIterator) -> i32 {
+    let iter = unsafe { &*iter };
+    if iter.is_valid() { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_filter_iter_key(
+    iter: *const TopicFilterIterator,
+    out_levels: *mut CLevel,
+    cap: u32,
+) -> i32 {
+    let iter = unsafe { &*iter };
+    let Some(levels) = iter.key() else {
+        return -1;
+    };
+    if levels.len() > cap as usize {
+        return -(levels.len() as i32);
+    }
+    let out = unsafe { slice::from_raw_parts_mut(out_levels, cap as usize) };
+    for (i, level) in levels.iter().enumerate() {
+        out[i] = CLevel {
+            ptr: level.as_ptr(),
+            len: level.len() as u32,
+        };
+    }
+    levels.len() as i32
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_filter_iter_values(
+    iter: *const TopicFilterIterator,
+    result_buf: *mut u64,
+    buf_cap: u32,
+) -> i32 {
+    let iter = unsafe { &*iter };
+    let Some(values) = iter.values() else {
+        return -1;
+    };
+    if values.len() > buf_cap as usize {
+        return -(values.len() as i32);
+    }
+    let buf = unsafe { slice::from_raw_parts_mut(result_buf, buf_cap as usize) };
+    for (i, &val) in values.iter().enumerate() {
+        buf[i] = val;
+    }
+    values.len() as i32
 }
 
 /// Get exact-match values for a topic.

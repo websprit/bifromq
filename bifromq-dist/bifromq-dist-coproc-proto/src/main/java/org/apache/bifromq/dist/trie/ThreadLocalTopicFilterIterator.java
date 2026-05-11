@@ -21,12 +21,31 @@ package org.apache.bifromq.dist.trie;
 
 import static java.lang.ThreadLocal.withInitial;
 
+import lombok.extern.slf4j.Slf4j;
+import org.apache.bifromq.native_binding.NativeLoader;
+
+@Slf4j
 public class ThreadLocalTopicFilterIterator {
-    private static final ThreadLocal<ITopicFilterIterator<?>> INSTANCE = withInitial(TopicFilterIterator::new);
+    private static final ThreadLocal<ITopicFilterIterator<?>> JAVA_INSTANCE = withInitial(TopicFilterIterator::new);
+    private static final ThreadLocal<ITopicFilterIterator<?>> NATIVE_INSTANCE =
+        withInitial(NativeTopicFilterIterator::new);
+    private static volatile boolean nativeIteratorAvailable = NativeLoader.isAvailable();
 
     public static <V> ITopicFilterIterator<V> get(TopicTrieNode<V> root) {
+        if (nativeIteratorAvailable) {
+            try {
+                @SuppressWarnings("unchecked")
+                ITopicFilterIterator<V> itr = ((ITopicFilterIterator<V>) NATIVE_INSTANCE.get());
+                itr.init(root);
+                return itr;
+            } catch (Throwable e) {
+                nativeIteratorAvailable = false;
+                NATIVE_INSTANCE.remove();
+                log.warn("Native topic filter iterator unavailable, using Java fallback: {}", e.getMessage());
+            }
+        }
         @SuppressWarnings("unchecked")
-        ITopicFilterIterator<V> itr = ((ITopicFilterIterator<V>) INSTANCE.get());
+        ITopicFilterIterator<V> itr = ((ITopicFilterIterator<V>) JAVA_INSTANCE.get());
         itr.init(root);
         return itr;
     }

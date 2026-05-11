@@ -70,7 +70,7 @@ if [[ "$HOST_OS" != "Linux" || "$HOST_ARCH" != "x86_64" ]]; then
             -v "$(pwd):/workspace" \
             -w /workspace \
             rust:1.83-slim \
-            bash -c "cargo build --release"
+            bash -c "apt-get update && apt-get install -y --no-install-recommends cmake g++ make && cargo build --release"
         CROSS_DIR="$BINDING_RES/linux-x86_64"
         mkdir -p "$CROSS_DIR"
         cp target/release/libbifromq_native.so "$CROSS_DIR/"

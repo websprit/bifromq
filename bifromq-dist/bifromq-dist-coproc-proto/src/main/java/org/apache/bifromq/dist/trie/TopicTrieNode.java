@@ -41,17 +41,23 @@ public final class TopicTrieNode<V> {
 
     private final String levelName;
     private final boolean wildcardMatchable;
+    private final boolean global;
     private final NavigableMap<String, TopicTrieNode<V>> children = new TreeMap<>();
     private final Set<V> values = new HashSet<>();
     private List<String> topic;
 
-    private TopicTrieNode() {
-        this(NUL, false);
+    private TopicTrieNode(boolean global) {
+        this(NUL, false, global);
     }
 
     private TopicTrieNode(String levelName, boolean wildcardMatchable) {
+        this(levelName, wildcardMatchable, false);
+    }
+
+    private TopicTrieNode(String levelName, boolean wildcardMatchable, boolean global) {
         this.levelName = levelName;
         this.wildcardMatchable = wildcardMatchable;
+        this.global = global;
     }
 
     /**
@@ -94,6 +100,10 @@ public final class TopicTrieNode<V> {
         return wildcardMatchable;
     }
 
+    boolean isGlobal() {
+        return global;
+    }
+
     NavigableMap<String, TopicTrieNode<V>> children() {
         return Collections.unmodifiableNavigableMap(children);
     }
@@ -117,7 +127,7 @@ public final class TopicTrieNode<V> {
          * @param isGlobal if the topic trie is global which the first level represents the tenantId
          */
         private Builder(boolean isGlobal) {
-            this.root = new TopicTrieNode<>();
+            this.root = new TopicTrieNode<>(isGlobal);
             this.isGlobal = isGlobal;
         }
 

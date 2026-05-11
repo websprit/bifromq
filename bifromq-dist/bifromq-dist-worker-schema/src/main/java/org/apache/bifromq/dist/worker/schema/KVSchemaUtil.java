@@ -34,6 +34,8 @@ import static org.apache.bifromq.util.BSUtil.toByteString;
 import static org.apache.bifromq.util.TopicConst.NUL;
 
 import com.google.protobuf.ByteString;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import org.apache.bifromq.dist.rpc.proto.MatchRoute;
 import org.apache.bifromq.dist.rpc.proto.RouteGroup;
@@ -42,6 +44,8 @@ import org.apache.bifromq.dist.worker.schema.cache.Matching;
 import org.apache.bifromq.dist.worker.schema.cache.NormalMatchingCache;
 import org.apache.bifromq.dist.worker.schema.cache.RouteDetail;
 import org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache;
+import org.apache.bifromq.native_binding.NativeLoader;
+import org.apache.bifromq.native_binding.kvcodec.NativeKVEncoder;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.BSUtil;
 
@@ -49,6 +53,8 @@ import org.apache.bifromq.util.BSUtil;
  * Utility for working with the data stored in dist worker.
  */
 public class KVSchemaUtil {
+    private static volatile boolean nativeKVEncodingAvailable = NativeLoader.isAvailable();
+
     public static String toReceiverUrl(MatchRoute route) {
         return toReceiverUrl(route.getBrokerId(), route.getReceiverId(), route.getDelivererKey());
     }
@@ -89,24 +95,44 @@ public class KVSchemaUtil {
     }
 
     public static ByteString tenantBeginKey(String tenantId) {
-        ByteString tenantIdBytes = copyFromUtf8(tenantId);
-        return SCHEMA_VER.concat(toByteString((short) tenantIdBytes.size()).concat(tenantIdBytes));
+        if (nativeKVEncodingAvailable) {
+            try {
+                return unsafeWrap(NativeKVEncoder.encodeTenantBeginKey(utf8Bytes(tenantId)));
+            } catch (Throwable e) {
+                nativeKVEncodingAvailable = false;
+            }
+        }
+        return javaTenantBeginKey(tenantId);
     }
 
     public static ByteString tenantRouteStartKey(String tenantId, List<String> filterLevels) {
-        ByteString key = tenantBeginKey(tenantId);
-        for (String filterLevel : filterLevels) {
-            key = key.concat(copyFromUtf8(filterLevel)).concat(SEPARATOR_BYTE);
+        if (nativeKVEncodingAvailable) {
+            try {
+                return unsafeWrap(NativeKVEncoder.encodeRouteStartKey(
+                    utf8Bytes(tenantId), filterLevelsData(filterLevels)));
+            } catch (Throwable e) {
+                nativeKVEncodingAvailable = false;
+            }
         }
-        return key.concat(SEPARATOR_BYTE);
+        return javaTenantRouteStartKey(tenantId, filterLevels);
     }
 
     private static ByteString tenantRouteBucketStartKey(String tenantId, List<String> filterLevels, byte bucket) {
-        return tenantRouteStartKey(tenantId, filterLevels).concat(unsafeWrap(new byte[] {bucket}));
+        return javaTenantRouteStartKey(tenantId, filterLevels).concat(unsafeWrap(new byte[] {bucket}));
     }
 
     public static ByteString toNormalRouteKey(String tenantId, RouteMatcher routeMatcher, String receiverUrl) {
         assert routeMatcher.getType() == RouteMatcher.Type.Normal;
+        if (nativeKVEncodingAvailable) {
+            try {
+                return unsafeWrap(NativeKVEncoder.encodeNormalRouteKey(
+                    utf8Bytes(tenantId),
+                    filterLevelsData(routeMatcher.getFilterLevelList()),
+                    utf8Bytes(receiverUrl)));
+            } catch (Throwable e) {
+                nativeKVEncodingAvailable = false;
+            }
+        }
         return tenantRouteBucketStartKey(tenantId, routeMatcher.getFilterLevelList(), bucket(receiverUrl))
             .concat(FLAG_NORMAL_VAL)
             .concat(toReceiverBytes(receiverUrl));
@@ -114,9 +140,58 @@ public class KVSchemaUtil {
 
     public static ByteString toGroupRouteKey(String tenantId, RouteMatcher routeMatcher) {
         assert routeMatcher.getType() != RouteMatcher.Type.Normal;
+        if (nativeKVEncodingAvailable) {
+            try {
+                return unsafeWrap(NativeKVEncoder.encodeGroupRouteKey(
+                    utf8Bytes(tenantId),
+                    filterLevelsData(routeMatcher.getFilterLevelList()),
+                    utf8Bytes(routeMatcher.getGroup()),
+                    routeMatcher.getType() == RouteMatcher.Type.OrderedShare));
+            } catch (Throwable e) {
+                nativeKVEncodingAvailable = false;
+            }
+        }
+        ByteString flag = routeMatcher.getType() == RouteMatcher.Type.OrderedShare
+            ? FLAG_ORDERED_VAL
+            : FLAG_UNORDERED_VAL;
         return tenantRouteBucketStartKey(tenantId, routeMatcher.getFilterLevelList(), bucket(routeMatcher.getGroup()))
-            .concat(routeMatcher.getType() == RouteMatcher.Type.OrderedShare ? FLAG_ORDERED_VAL : FLAG_UNORDERED_VAL)
+            .concat(flag)
             .concat(toReceiverBytes(routeMatcher.getGroup()));
+    }
+
+    private static ByteString javaTenantBeginKey(String tenantId) {
+        ByteString tenantIdBytes = copyFromUtf8(tenantId);
+        return SCHEMA_VER.concat(toByteString((short) tenantIdBytes.size()).concat(tenantIdBytes));
+    }
+
+    private static ByteString javaTenantRouteStartKey(String tenantId, List<String> filterLevels) {
+        ByteString key = javaTenantBeginKey(tenantId);
+        for (String filterLevel : filterLevels) {
+            key = key.concat(copyFromUtf8(filterLevel)).concat(SEPARATOR_BYTE);
+        }
+        return key.concat(SEPARATOR_BYTE);
+    }
+
+    private static byte[] utf8Bytes(String value) {
+        return value.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] filterLevelsData(List<String> filterLevels) {
+        List<byte[]> levels = new ArrayList<>(filterLevels.size());
+        int length = filterLevels.size();
+        for (String filterLevel : filterLevels) {
+            byte[] level = utf8Bytes(filterLevel);
+            levels.add(level);
+            length += level.length;
+        }
+        byte[] data = new byte[length];
+        int offset = 0;
+        for (byte[] level : levels) {
+            System.arraycopy(level, 0, data, offset, level.length);
+            offset += level.length;
+            data[offset++] = 0;
+        }
+        return data;
     }
 
     private static ByteString toReceiverBytes(String receiver) {

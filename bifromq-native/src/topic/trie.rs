@@ -20,7 +20,7 @@
 //! This is a Rust implementation of the Java `TopicLevelTrie` from BifroMQ,
 //! supporting MQTT wildcard matching (`+` single-level, `#` multi-level).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Single-level wildcard
 const SINGLE_WILDCARD: &str = "+";
@@ -58,13 +58,19 @@ impl TrieNode {
 /// - `$SYS` topics excluded from `+`/`#` at the root level
 pub struct TopicTrie {
     root: TrieNode,
+    is_global: bool,
 }
 
 impl TopicTrie {
     /// Create a new empty trie.
     pub fn new() -> Self {
+        Self::new_with_global(false)
+    }
+
+    pub fn new_with_global(is_global: bool) -> Self {
         TopicTrie {
             root: TrieNode::new(),
+            is_global,
         }
     }
 
@@ -173,6 +179,150 @@ impl TopicTrie {
             self.collect_all(child_node, false, results);
         }
     }
+
+    pub fn filter_iterator(&self) -> TopicFilterIterator {
+        let mut topics = Vec::new();
+        let mut prefix = Vec::new();
+        self.collect_topics(&mut prefix, &self.root, &mut topics);
+
+        let mut entries = BTreeMap::<Vec<String>, BTreeSet<u64>>::new();
+        for (levels, values) in topics {
+            let filters = self.expansion_filters(&levels);
+            for filter in filters {
+                entries.entry(filter).or_default().extend(values.iter().copied());
+            }
+        }
+
+        TopicFilterIterator {
+            entries: entries.into_iter()
+                .map(|(levels, values)| TopicFilterEntry {
+                    levels,
+                    values: values.into_iter().collect(),
+                })
+                .collect(),
+            index: 0,
+        }
+    }
+
+    fn collect_topics(&self, prefix: &mut Vec<String>, node: &TrieNode, topics: &mut Vec<(Vec<String>, Vec<u64>)>) {
+        if !node.values.is_empty() {
+            topics.push((prefix.clone(), node.values.iter().copied().collect()));
+        }
+        for (level, child) in &node.children {
+            prefix.push(level.clone());
+            self.collect_topics(prefix, child, topics);
+            prefix.pop();
+        }
+    }
+
+    fn expansion_filters(&self, levels: &[String]) -> Vec<Vec<String>> {
+        let mut filters = BTreeSet::new();
+        let mut prefix = Vec::new();
+        self.expand_prefix(levels, 0, &mut prefix, &mut filters);
+        filters.into_iter().collect()
+    }
+
+    fn expand_prefix(
+        &self,
+        levels: &[String],
+        level_index: usize,
+        prefix: &mut Vec<String>,
+        filters: &mut BTreeSet<Vec<String>>,
+    ) {
+        if level_index == levels.len() {
+            filters.insert(prefix.clone());
+            prefix.push(MULTI_WILDCARD.to_string());
+            filters.insert(prefix.clone());
+            prefix.pop();
+            return;
+        }
+
+        if self.wildcard_matchable(levels, level_index) {
+            prefix.push(MULTI_WILDCARD.to_string());
+            filters.insert(prefix.clone());
+            prefix.pop();
+        }
+
+        prefix.push(levels[level_index].clone());
+        self.expand_prefix(levels, level_index + 1, prefix, filters);
+        prefix.pop();
+
+        if self.wildcard_matchable(levels, level_index) {
+            prefix.push(SINGLE_WILDCARD.to_string());
+            self.expand_prefix(levels, level_index + 1, prefix, filters);
+            prefix.pop();
+        }
+    }
+
+    fn wildcard_matchable(&self, levels: &[String], level_index: usize) -> bool {
+        if self.is_global {
+            level_index > 1 || level_index == 1 && !levels[level_index].starts_with(SYS_PREFIX)
+        } else {
+            level_index > 0 || !levels[level_index].starts_with(SYS_PREFIX)
+        }
+    }
+}
+
+struct TopicFilterEntry {
+    levels: Vec<String>,
+    values: Vec<u64>,
+}
+
+pub struct TopicFilterIterator {
+    entries: Vec<TopicFilterEntry>,
+    index: usize,
+}
+
+impl TopicFilterIterator {
+    pub fn seek(&mut self, levels: &[&str]) {
+        self.index = match self.entries.binary_search_by(|entry| compare_levels(&entry.levels, levels)) {
+            Ok(index) | Err(index) => index,
+        };
+    }
+
+    pub fn seek_prev(&mut self, levels: &[&str]) {
+        self.index = match self.entries.binary_search_by(|entry| compare_levels(&entry.levels, levels)) {
+            Ok(0) | Err(0) => self.entries.len(),
+            Ok(index) => index - 1,
+            Err(index) => index - 1,
+        };
+    }
+
+    pub fn next(&mut self) {
+        if self.is_valid() {
+            self.index += 1;
+        }
+    }
+
+    pub fn prev(&mut self) {
+        if self.index == 0 || self.entries.is_empty() {
+            self.index = self.entries.len();
+        } else if self.is_valid() {
+            self.index -= 1;
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.index < self.entries.len()
+    }
+
+    pub fn key(&self) -> Option<&[String]> {
+        self.entries.get(self.index).map(|entry| entry.levels.as_slice())
+    }
+
+    pub fn values(&self) -> Option<&[u64]> {
+        self.entries.get(self.index).map(|entry| entry.values.as_slice())
+    }
+}
+
+fn compare_levels(left: &[String], right: &[&str]) -> std::cmp::Ordering {
+    for (left_level, right_level) in left.iter().zip(right.iter()) {
+        match left_level.as_str().cmp(right_level) {
+            std::cmp::Ordering::Equal => {}
+            ordering => return ordering,
+        }
+    }
+    left.len().cmp(&right.len())
 }
 
 #[cfg(test)]

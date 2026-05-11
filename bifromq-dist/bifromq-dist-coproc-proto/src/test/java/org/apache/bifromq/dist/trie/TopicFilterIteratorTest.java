@@ -341,6 +341,27 @@ public class TopicFilterIteratorTest {
         assertEquals(itr.value().get(List.of("tenant", "c")), Set.of("v3"));
     }
 
+    @Test
+    public void threadLocalIteratorMatchesJavaIterator() {
+        TopicTrieNode.Builder<String> builder = TopicTrieNode.builder(true);
+        builder.addTopic(parse("tenant/$sys/a", false), "v1");
+        builder.addTopic(parse("tenant/a/b", false), "v2");
+        builder.addTopic(parse("tenant/c", false), "v3");
+        TopicTrieNode<String> root = builder.build();
+        TopicFilterIterator<String> javaIterator = new TopicFilterIterator<>();
+        javaIterator.init(root);
+        try (ITopicFilterIterator<String> threadLocalIterator = ThreadLocalTopicFilterIterator.get(root)) {
+            while (javaIterator.isValid()) {
+                assertTrue(threadLocalIterator.isValid());
+                assertEquals(threadLocalIterator.key(), javaIterator.key());
+                assertEquals(threadLocalIterator.value(), javaIterator.value());
+                javaIterator.next();
+                threadLocalIterator.next();
+            }
+            assertTrue(!threadLocalIterator.isValid());
+        }
+    }
+
     private void expandTopics(Map<String, List<String>> topicToFilters, boolean isGlobal) {
         TopicTrieNode.Builder<String> topicTrieBuilder = TopicTrieNode.builder(isGlobal);
         Set<String> allTopicFilters = new HashSet<>();

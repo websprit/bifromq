@@ -57,6 +57,7 @@ public class NativeTopicTrie implements AutoCloseable {
 
     // Method handles (lazily resolved from NativeLoader symbols)
     private static final MethodHandle TRIE_NEW;
+    private static final MethodHandle TRIE_NEW_GLOBAL;
     private static final MethodHandle TRIE_FREE;
     private static final MethodHandle TRIE_ADD;
     private static final MethodHandle TRIE_REMOVE;
@@ -69,6 +70,11 @@ public class NativeTopicTrie implements AutoCloseable {
         TRIE_NEW = LINKER.downcallHandle(
             symbols.find("topic_trie_new").orElseThrow(),
             FunctionDescriptor.of(ValueLayout.ADDRESS)
+        );
+
+        TRIE_NEW_GLOBAL = LINKER.downcallHandle(
+            symbols.find("topic_trie_new_global").orElseThrow(),
+            FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE)
         );
 
         TRIE_FREE = LINKER.downcallHandle(
@@ -126,11 +132,19 @@ public class NativeTopicTrie implements AutoCloseable {
     private MemorySegment triePtr;
 
     public NativeTopicTrie() {
+        this(false);
+    }
+
+    public NativeTopicTrie(boolean isGlobal) {
         try {
-            this.triePtr = (MemorySegment) TRIE_NEW.invokeExact();
+            this.triePtr = (MemorySegment) TRIE_NEW_GLOBAL.invokeExact(isGlobal ? (byte) 1 : (byte) 0);
         } catch (Throwable t) {
             throw new RuntimeException("Failed to create native TopicTrie", t);
         }
+    }
+
+    MemorySegment triePtr() {
+        return triePtr;
     }
 
     /**
