@@ -62,6 +62,7 @@ public class NativeTopicTrie implements AutoCloseable {
     private static final MethodHandle TRIE_ADD;
     private static final MethodHandle TRIE_REMOVE;
     private static final MethodHandle TRIE_MATCH;
+    private static final MethodHandle TRIE_MATCH_BATCH;
     private static final MethodHandle TRIE_GET;
 
     static {
@@ -113,6 +114,23 @@ public class NativeTopicTrie implements AutoCloseable {
                 ValueLayout.JAVA_INT,       // filter levels count
                 ValueLayout.ADDRESS,        // result buffer ptr
                 ValueLayout.JAVA_INT        // buffer capacity
+            )
+        );
+
+        TRIE_MATCH_BATCH = LINKER.downcallHandle(
+            symbols.find("topic_trie_match_batch").orElseThrow(),
+            FunctionDescriptor.of(
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_INT,
+                ValueLayout.ADDRESS,
+                ValueLayout.ADDRESS,
+                ValueLayout.ADDRESS,
+                ValueLayout.JAVA_INT
             )
         );
 
@@ -187,10 +205,119 @@ public class NativeTopicTrie implements AutoCloseable {
     }
 
     /**
+     * Match topic filters against all stored topics.
+     */
+    public BatchMatchResult matchBatch(List<List<String>> filters) {
+        if (filters.isEmpty()) {
+            return new BatchMatchResult(new int[0], new int[0], new long[0]);
+        }
+        int initialCap = Math.max(64, filters.size() * 4);
+        return queryTrieBatch(filters, initialCap);
+    }
+
+    /**
      * Get exact-match values for a topic.
      */
     public Set<Long> get(List<String> levels) {
         return queryTrie(TRIE_GET, levels);
+    }
+
+    private BatchMatchResult queryTrieBatch(List<List<String>> filters, int topicIdsCap) {
+        try {
+            var ctx = NativeArenaPool.get();
+            BatchInput input = allocateBatchInput(ctx, filters);
+            var topicIdsSegment = ctx.output((long) topicIdsCap * ValueLayout.JAVA_LONG.byteSize());
+            int count = invokeMatchBatch(input, topicIdsSegment, topicIdsCap);
+            if (count < 0) {
+                int needed = -count;
+                topicIdsSegment = ctx.output((long) needed * ValueLayout.JAVA_LONG.byteSize());
+                count = invokeMatchBatch(input, topicIdsSegment, needed);
+            }
+            if (count < 0) {
+                throw new IllegalStateException("topic_trie_match_batch failed: " + count);
+            }
+            int[] resultOffsets = new int[filters.size()];
+            int[] resultCounts = new int[filters.size()];
+            for (int i = 0; i < filters.size(); i++) {
+                resultOffsets[i] = input.resultOffsetsSegment.getAtIndex(ValueLayout.JAVA_INT, i);
+                resultCounts[i] = input.resultCountsSegment.getAtIndex(ValueLayout.JAVA_INT, i);
+            }
+            long[] topicIds = new long[count];
+            for (int i = 0; i < count; i++) {
+                topicIds[i] = topicIdsSegment.getAtIndex(ValueLayout.JAVA_LONG, i);
+            }
+            return new BatchMatchResult(resultOffsets, resultCounts, topicIds);
+        } catch (Throwable t) {
+            throw new RuntimeException("topic_trie_match_batch failed", t);
+        }
+    }
+
+    private int invokeMatchBatch(BatchInput input, MemorySegment topicIdsSegment, int topicIdsCap) throws Throwable {
+        return (int) TRIE_MATCH_BATCH.invokeExact(
+            triePtr,
+            input.levelsSegment,
+            input.levelCount,
+            input.filterOffsetsSegment,
+            input.filterCountsSegment,
+            input.filterCount,
+            input.resultOffsetsSegment,
+            input.resultCountsSegment,
+            topicIdsSegment,
+            topicIdsCap);
+    }
+
+    private BatchInput allocateBatchInput(NativeArenaPool.Ctx ctx, List<List<String>> filters) {
+        int levelCount = 0;
+        long maxStringBytes = 0;
+        for (List<String> filter : filters) {
+            levelCount += filter.size();
+            for (String level : filter) {
+                maxStringBytes += (long) level.length() * 3;
+            }
+        }
+        long cLevelBytes = C_LEVEL_LAYOUT.byteSize() * levelCount;
+        long stringOffset = cLevelBytes;
+        long filterOffsetsOffset = align(stringOffset + maxStringBytes, ValueLayout.JAVA_INT.byteSize());
+        long filterCountsOffset = filterOffsetsOffset + (long) filters.size() * ValueLayout.JAVA_INT.byteSize();
+        long resultOffsetsOffset = filterCountsOffset + (long) filters.size() * ValueLayout.JAVA_INT.byteSize();
+        long resultCountsOffset = resultOffsetsOffset + (long) filters.size() * ValueLayout.JAVA_INT.byteSize();
+        long totalBytes = resultCountsOffset + (long) filters.size() * ValueLayout.JAVA_INT.byteSize();
+        MemorySegment input = ctx.input(totalBytes);
+        MemorySegment levelsSegment = input.asSlice(0, cLevelBytes);
+        MemorySegment filterOffsetsSegment = input.asSlice(filterOffsetsOffset,
+            (long) filters.size() * ValueLayout.JAVA_INT.byteSize());
+        MemorySegment filterCountsSegment = input.asSlice(filterCountsOffset,
+            (long) filters.size() * ValueLayout.JAVA_INT.byteSize());
+        MemorySegment resultOffsetsSegment = input.asSlice(resultOffsetsOffset,
+            (long) filters.size() * ValueLayout.JAVA_INT.byteSize());
+        MemorySegment resultCountsSegment = input.asSlice(resultCountsOffset,
+            (long) filters.size() * ValueLayout.JAVA_INT.byteSize());
+        CharsetEncoder encoder = UTF8_ENCODER.get();
+        long cLevelSize = C_LEVEL_LAYOUT.byteSize();
+        long stringWriteOffset = stringOffset;
+        int levelIndex = 0;
+        for (int i = 0; i < filters.size(); i++) {
+            List<String> filter = filters.get(i);
+            filterOffsetsSegment.setAtIndex(ValueLayout.JAVA_INT, i, levelIndex);
+            filterCountsSegment.setAtIndex(ValueLayout.JAVA_INT, i, filter.size());
+            for (String level : filter) {
+                int maxBytes = level.length() * 3;
+                MemorySegment strSegment = input.asSlice(stringWriteOffset, maxBytes);
+                ByteBuffer buf = strSegment.asByteBuffer();
+                buf.clear();
+                encoder.reset();
+                encoder.encode(CharBuffer.wrap(level), buf, true);
+                encoder.flush(buf);
+                int len = buf.position();
+                long offset = levelIndex * cLevelSize;
+                levelsSegment.set(ValueLayout.ADDRESS, offset, strSegment);
+                levelsSegment.set(ValueLayout.JAVA_INT, offset + ValueLayout.ADDRESS.byteSize(), len);
+                stringWriteOffset += len;
+                levelIndex++;
+            }
+        }
+        return new BatchInput(levelsSegment, levelCount, filterOffsetsSegment, filterCountsSegment, filters.size(),
+            resultOffsetsSegment, resultCountsSegment);
     }
 
     private Set<Long> queryTrie(MethodHandle handle, List<String> levels) {
@@ -222,6 +349,22 @@ public class NativeTopicTrie implements AutoCloseable {
         } catch (Throwable t) {
             throw new RuntimeException("topic_trie query failed", t);
         }
+    }
+
+    public record BatchMatchResult(int[] resultOffsets, int[] resultCounts, long[] topicIds) {
+    }
+
+    private record BatchInput(MemorySegment levelsSegment,
+                              int levelCount,
+                              MemorySegment filterOffsetsSegment,
+                              MemorySegment filterCountsSegment,
+                              int filterCount,
+                              MemorySegment resultOffsetsSegment,
+                              MemorySegment resultCountsSegment) {
+    }
+
+    private static long align(long value, long alignment) {
+        return (value + alignment - 1) / alignment * alignment;
     }
 
     private static final ThreadLocal<CharsetEncoder> UTF8_ENCODER = ThreadLocal.withInitial(() ->

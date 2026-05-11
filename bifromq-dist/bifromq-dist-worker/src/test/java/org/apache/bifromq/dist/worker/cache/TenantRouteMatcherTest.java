@@ -35,13 +35,17 @@ import static org.testng.Assert.assertTrue;
 import com.google.protobuf.ByteString;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Queue;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import org.apache.bifromq.basekv.proto.Boundary;
 import org.apache.bifromq.basekv.proto.State;
@@ -57,6 +61,8 @@ import org.apache.bifromq.plugin.eventcollector.Event;
 import org.apache.bifromq.plugin.eventcollector.IEventCollector;
 import org.apache.bifromq.plugin.eventcollector.distservice.GroupFanoutThrottled;
 import org.apache.bifromq.plugin.eventcollector.distservice.PersistentFanoutThrottled;
+import org.apache.bifromq.sysprops.props.NativeTenantRouteMatcherEnabled;
+import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.BSUtil;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -270,6 +276,126 @@ public class TenantRouteMatcherTest {
     }
 
     @Test
+    public void nativeIndexBuildsAsyncAndFallsBackUntilReady() {
+        if (!NativeTenantRouteMatcherEnabled.INSTANCE.get()) {
+            return;
+        }
+        NavigableMap<ByteString, ByteString> kvData = newTreeMap();
+        NormalMatching existing = normalMatching(TENANT_ID, "sensor/+/temp", 1, "receiverA", "delivererA", 1);
+        kvData.put(toNormalRouteKey(TENANT_ID, existing.matcher, existing.receiverUrl()),
+            BSUtil.toByteString(existing.incarnation()));
+        ManualExecutor indexBuildExecutor = new ManualExecutor();
+        TenantRouteMatcher matcher = new TenantRouteMatcher(TENANT_ID, () -> new TreeMapKVReader(kvData),
+            eventCollector, matchTimer, indexBuildExecutor);
+
+        Set<Matching> fallbackRoutes = matcher.matchAll(Set.of("sensor/device1/temp"), 10, 10)
+            .get("sensor/device1/temp").routes();
+
+        assertEquals(fallbackRoutes, Set.of(existing));
+        assertEquals(indexBuildExecutor.pendingTasks(), 1);
+
+        indexBuildExecutor.runNext();
+        kvData.clear();
+
+        Set<Matching> nativeRoutes = matcher.matchAll(Set.of("sensor/device1/temp"), 10, 10)
+            .get("sensor/device1/temp").routes();
+
+        assertEquals(nativeRoutes, Set.of(existing));
+        matcher.close();
+    }
+
+    @Test
+    public void nativeIndexReplaysRouteUpdatesDuringAsyncBuild() {
+        if (!NativeTenantRouteMatcherEnabled.INSTANCE.get()) {
+            return;
+        }
+        NavigableMap<ByteString, ByteString> kvData = newTreeMap();
+        NormalMatching existing = normalMatching(TENANT_ID, "sensor/+/temp", 1, "receiverA", "delivererA", 1);
+        kvData.put(toNormalRouteKey(TENANT_ID, existing.matcher, existing.receiverUrl()),
+            BSUtil.toByteString(existing.incarnation()));
+        ManualExecutor indexBuildExecutor = new ManualExecutor();
+        TenantRouteMatcher matcher = new TenantRouteMatcher(TENANT_ID, () -> new TreeMapKVReader(kvData),
+            eventCollector, matchTimer, indexBuildExecutor);
+
+        assertEquals(matcher.matchAll(Set.of("sensor/device1/temp"), 10, 10)
+            .get("sensor/device1/temp").routes(), Set.of(existing));
+        assertEquals(indexBuildExecutor.pendingTasks(), 1);
+
+        NormalMatching added = normalMatching(TENANT_ID, "sensor/+/humidity", 1, "receiverB", "delivererB", 2);
+        matcher.removeRoutes(routeMap(existing));
+        matcher.addRoutes(routeMap(added));
+
+        indexBuildExecutor.runNext();
+        kvData.clear();
+
+        assertEquals(matcher.matchAll(Set.of("sensor/device1/temp"), 10, 10)
+            .get("sensor/device1/temp").routes(), Set.of());
+        assertEquals(matcher.matchAll(Set.of("sensor/device1/humidity"), 10, 10)
+            .get("sensor/device1/humidity").routes(), Set.of(added));
+        matcher.close();
+    }
+
+    @Test
+    public void nativeIndexKeepsParityAfterRepeatedSubAndUnsub() {
+        NavigableMap<ByteString, ByteString> kvData = newTreeMap();
+        NormalMatching existing = normalMatching(TENANT_ID, "sensor/+/temp", 1, "receiverA", "delivererA", 1);
+        kvData.put(toNormalRouteKey(TENANT_ID, existing.matcher, existing.receiverUrl()),
+            BSUtil.toByteString(existing.incarnation()));
+
+        TenantRouteMatcher nativeMatcher =
+            new TenantRouteMatcher(TENANT_ID, () -> new TreeMapKVReader(kvData), eventCollector, matchTimer);
+        nativeMatcher.matchAll(Set.of("sensor/device1/temp"), 10, 10);
+
+        NormalMatching duplicate = normalMatching(TENANT_ID, "sensor/+/temp", 1, "receiverA", "delivererA", 1);
+        nativeMatcher.addRoutes(routeMap(duplicate));
+
+        NormalMatching updated = normalMatching(TENANT_ID, "sensor/+/temp", 1, "receiverA", "delivererA", 2);
+        kvData.put(toNormalRouteKey(TENANT_ID, existing.matcher, existing.receiverUrl()),
+            BSUtil.toByteString(updated.incarnation()));
+        nativeMatcher.removeRoutes(routeMap(existing));
+        nativeMatcher.addRoutes(routeMap(updated));
+
+        assertMatchParity(kvData, nativeMatcher, "sensor/device1/temp", Set.of(updated));
+
+        kvData.remove(toNormalRouteKey(TENANT_ID, updated.matcher, updated.receiverUrl()));
+        nativeMatcher.removeRoutes(routeMap(updated));
+
+        assertMatchParity(kvData, nativeMatcher, "sensor/device1/temp", Set.of());
+        nativeMatcher.close();
+    }
+
+    @Test
+    public void nativeIndexKeepsParityAfterRepeatedGroupSubAndUnsub() {
+        NavigableMap<ByteString, ByteString> kvData = newTreeMap();
+        GroupMatching fullGroup = unorderedGroupMatching(TENANT_ID, "sensor/+/temp", "groupA",
+            Map.of(receiverUrl(1, "receiverA", "delivererA"), 1L,
+                receiverUrl(1, "receiverB", "delivererB"), 2L));
+        kvData.put(toGroupRouteKey(TENANT_ID, fullGroup.matcher),
+            RouteGroup.newBuilder().putAllMembers(fullGroup.receivers()).build().toByteString());
+
+        TenantRouteMatcher nativeMatcher =
+            new TenantRouteMatcher(TENANT_ID, () -> new TreeMapKVReader(kvData), eventCollector, matchTimer);
+        nativeMatcher.matchAll(Set.of("sensor/device1/temp"), 10, 10);
+
+        nativeMatcher.addRoutes(routeMap(fullGroup));
+
+        GroupMatching reducedGroup = unorderedGroupMatching(TENANT_ID, "sensor/+/temp", "groupA",
+            Map.of(receiverUrl(1, "receiverA", "delivererA"), 1L));
+        kvData.put(toGroupRouteKey(TENANT_ID, fullGroup.matcher),
+            RouteGroup.newBuilder().putAllMembers(reducedGroup.receivers()).build().toByteString());
+        nativeMatcher.removeRoutes(routeMap(reducedGroup));
+
+        assertMatchParity(kvData, nativeMatcher, "sensor/device1/temp", Set.of(reducedGroup));
+
+        GroupMatching emptyGroup = unorderedGroupMatching(TENANT_ID, "sensor/+/temp", "groupA", Map.of());
+        kvData.remove(toGroupRouteKey(TENANT_ID, fullGroup.matcher));
+        nativeMatcher.removeRoutes(routeMap(emptyGroup));
+
+        assertMatchParity(kvData, nativeMatcher, "sensor/device1/temp", Set.of());
+        nativeMatcher.close();
+    }
+
+    @Test
     public void triggerPersistentFanoutThrottling() {
         NavigableMap<ByteString, ByteString> kvData = newTreeMap();
 
@@ -339,6 +465,41 @@ public class TenantRouteMatcherTest {
         // second comes before first in lexicographical order by bucketing key
         assertEquals(event.mqttTopicFilter(), first.mqttTopicFilter());
         assertEquals(event.maxCount(), 1);
+    }
+
+    private NavigableMap<RouteMatcher, Set<Matching>> routeMap(Matching matching) {
+        NavigableMap<RouteMatcher, Set<Matching>> routes = new TreeMap<>(Comparator.comparing(RouteMatcher::toString));
+        routes.put(matching.matcher, Set.of(matching));
+        return routes;
+    }
+
+    private void assertMatchParity(NavigableMap<ByteString, ByteString> kvData,
+                                   TenantRouteMatcher nativeMatcher,
+                                   String topic,
+                                   Set<Matching> expected) {
+        TenantRouteMatcher javaMatcher =
+            new TenantRouteMatcher(TENANT_ID, () -> new TreeMapKVReader(kvData), eventCollector, matchTimer);
+        Set<Matching> javaRoutes = javaMatcher.matchAll(Set.of(topic), 10, 10).get(topic).routes();
+        Set<Matching> nativeRoutes = nativeMatcher.matchAll(Set.of(topic), 10, 10).get(topic).routes();
+        assertEquals(javaRoutes, expected);
+        assertEquals(nativeRoutes, javaRoutes);
+    }
+
+    private static final class ManualExecutor implements Executor {
+        private final Queue<Runnable> tasks = new ArrayDeque<>();
+
+        @Override
+        public void execute(Runnable command) {
+            tasks.add(command);
+        }
+
+        int pendingTasks() {
+            return tasks.size();
+        }
+
+        void runNext() {
+            tasks.remove().run();
+        }
     }
 
     private static final class TreeMapKVReader implements IKVRangeRefreshableReader {

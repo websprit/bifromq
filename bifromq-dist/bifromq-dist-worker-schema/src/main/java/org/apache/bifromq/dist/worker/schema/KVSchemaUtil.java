@@ -46,6 +46,7 @@ import org.apache.bifromq.dist.worker.schema.cache.RouteDetail;
 import org.apache.bifromq.dist.worker.schema.cache.RouteDetailCache;
 import org.apache.bifromq.native_binding.NativeLoader;
 import org.apache.bifromq.native_binding.kvcodec.NativeKVEncoder;
+import org.apache.bifromq.sysprops.props.NativeKVEncodingEnabled;
 import org.apache.bifromq.type.RouteMatcher;
 import org.apache.bifromq.util.BSUtil;
 
@@ -53,7 +54,8 @@ import org.apache.bifromq.util.BSUtil;
  * Utility for working with the data stored in dist worker.
  */
 public class KVSchemaUtil {
-    private static volatile boolean nativeKVEncodingAvailable = NativeLoader.isAvailable();
+    private static volatile boolean nativeKVEncodingAvailable =
+        NativeLoader.isAvailable() && NativeKVEncodingEnabled.INSTANCE.get();
 
     public static String toReceiverUrl(MatchRoute route) {
         return toReceiverUrl(route.getBrokerId(), route.getReceiverId(), route.getDelivererKey());

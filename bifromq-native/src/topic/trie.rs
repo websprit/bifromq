@@ -124,9 +124,15 @@ impl TopicTrie {
     /// Match a topic filter (may contain `+` and `#` wildcards) against all stored topics.
     /// Returns all matching value ids.
     pub fn match_filter(&self, filter_levels: &[&str]) -> Vec<u64> {
-        let mut results = HashSet::new();
-        self.match_recursive(&self.root, filter_levels, 0, true, &mut results);
-        results.into_iter().collect()
+        let mut results = Vec::new();
+        self.match_filter_into(filter_levels, &mut results);
+        results
+    }
+
+    pub fn match_filter_into(&self, filter_levels: &[&str], results: &mut Vec<u64>) {
+        self.match_recursive(&self.root, filter_levels, 0, true, results);
+        results.sort_unstable();
+        results.dedup();
     }
 
     fn match_recursive(
@@ -135,10 +141,10 @@ impl TopicTrie {
         filter_levels: &[&str],
         depth: usize,
         is_root: bool,
-        results: &mut HashSet<u64>,
+        results: &mut Vec<u64>,
     ) {
         if depth == filter_levels.len() {
-            results.extend(&node.values);
+            results.extend(node.values.iter().copied());
             return;
         }
 
@@ -169,8 +175,8 @@ impl TopicTrie {
     }
 
     /// Collect all values from this node and all descendants.
-    fn collect_all(&self, node: &TrieNode, is_root: bool, results: &mut HashSet<u64>) {
-        results.extend(&node.values);
+    fn collect_all(&self, node: &TrieNode, is_root: bool, results: &mut Vec<u64>) {
+        results.extend(node.values.iter().copied());
         for (child_level, child_node) in &node.children {
             // At root level, `#` does not match topics starting with `$`
             if is_root && child_level.starts_with(SYS_PREFIX) {
@@ -403,6 +409,15 @@ mod tests {
         let mut results = trie.match_filter(&["a", "#"]);
         results.sort();
         assert_eq!(results, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_match_deduplicates_value_ids() {
+        let mut trie = TopicTrie::new();
+        trie.add(&["a", "b"], 1);
+        trie.add(&["a", "c"], 1);
+
+        assert_eq!(trie.match_filter(&["a", "+"]), vec![1]);
     }
 
     #[test]

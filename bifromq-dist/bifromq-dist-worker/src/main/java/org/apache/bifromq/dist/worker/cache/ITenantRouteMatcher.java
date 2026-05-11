@@ -19,8 +19,11 @@
 
 package org.apache.bifromq.dist.worker.cache;
 
+import java.util.NavigableMap;
 import java.util.Map;
 import java.util.Set;
+import org.apache.bifromq.dist.worker.schema.cache.Matching;
+import org.apache.bifromq.type.RouteMatcher;
 
 /**
  * The interface for tenant route matcher.
@@ -35,4 +38,13 @@ public interface ITenantRouteMatcher {
      * @return the result
      */
     Map<String, IMatchedRoutes> matchAll(Set<String> topics, int maxPersistentFanoutCount, int maxGroupFanoutCount);
+
+    default void addRoutes(NavigableMap<RouteMatcher, Set<Matching>> routes) {
+    }
+
+    default void removeRoutes(NavigableMap<RouteMatcher, Set<Matching>> routes) {
+    }
+
+    default void close() {
+    }
 }

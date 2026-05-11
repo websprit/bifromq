@@ -216,6 +216,7 @@ class TenantRouteCache implements ITenantRouteCache {
                         switch (task.type()) {
                             case AddRoutes -> {
                                 AddRoutesTask addTask = (AddRoutesTask) task;
+                                matcher.addRoutes(addTask.routes);
                                 for (RouteMatcher topicFilter : addTask.routes.keySet()) {
                                     Set<Matching> newMatchings = addTask.routes.get(topicFilter);
                                     List<String> filterLevels = topicFilter.getFilterLevelList();
@@ -245,6 +246,7 @@ class TenantRouteCache implements ITenantRouteCache {
                             }
                             case RemoveRoutes -> {
                                 RemoveRoutesTask removeTask = (RemoveRoutesTask) task;
+                                matcher.removeRoutes(removeTask.routes);
                                 for (RouteMatcher topicFilter : removeTask.routes.keySet()) {
                                     Set<Matching> removedMatchings = removeTask.routes.get(topicFilter);
                                     List<String> filterLevels = topicFilter.getFilterLevelList();
@@ -307,6 +309,7 @@ class TenantRouteCache implements ITenantRouteCache {
     public void destroy() {
         routesCache.synchronous().asMap().keySet().forEach(key -> index.remove(key.topic, key));
         routesCache.synchronous().invalidateAll();
+        matcher.close();
         ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheMissCount, tags);
         ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheHitCount, tags);
         ITenantMeter.stopCounting(tenantId, TenantMetric.MqttRouteCacheEvictCount, tags);

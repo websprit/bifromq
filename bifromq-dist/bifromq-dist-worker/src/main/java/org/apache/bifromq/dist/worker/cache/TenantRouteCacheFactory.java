@@ -66,7 +66,7 @@ class TenantRouteCacheFactory implements ITenantRouteCacheFactory {
     @Override
     public ITenantRouteCache create(KVRangeId rangeId, String tenantId) {
         return new TenantRouteCache(rangeId, tenantId,
-            new TenantRouteMatcher(tenantId, readerSupplier, eventCollector, internalMatchTimer),
+            new TenantRouteMatcher(tenantId, readerSupplier, eventCollector, internalMatchTimer, matchExecutor),
             settingProvider, expiry, fanoutCheckInterval, matchExecutor);
     }
 

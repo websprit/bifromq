@@ -23,13 +23,15 @@ import static java.lang.ThreadLocal.withInitial;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.native_binding.NativeLoader;
+import org.apache.bifromq.sysprops.props.NativeTopicFilterIteratorEnabled;
 
 @Slf4j
 public class ThreadLocalTopicFilterIterator {
     private static final ThreadLocal<ITopicFilterIterator<?>> JAVA_INSTANCE = withInitial(TopicFilterIterator::new);
     private static final ThreadLocal<ITopicFilterIterator<?>> NATIVE_INSTANCE =
         withInitial(NativeTopicFilterIterator::new);
-    private static volatile boolean nativeIteratorAvailable = NativeLoader.isAvailable();
+    private static volatile boolean nativeIteratorAvailable =
+        NativeLoader.isAvailable() && NativeTopicFilterIteratorEnabled.INSTANCE.get();
 
     public static <V> ITopicFilterIterator<V> get(TopicTrieNode<V> root) {
         if (nativeIteratorAvailable) {

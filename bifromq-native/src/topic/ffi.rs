@@ -134,6 +134,52 @@ pub unsafe extern "C" fn topic_trie_match(
     results.len() as i32
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn topic_trie_match_batch(
+    trie: *const TopicTrie,
+    levels_ptr: *const CLevel,
+    levels_count: u32,
+    filter_offsets_ptr: *const u32,
+    filter_counts_ptr: *const u32,
+    filter_count: u32,
+    result_offsets_ptr: *mut u32,
+    result_counts_ptr: *mut u32,
+    topic_ids_ptr: *mut u64,
+    topic_ids_cap: u32,
+) -> i32 {
+    let trie = unsafe { &*trie };
+    let levels = unsafe { levels_to_strs(levels_ptr, levels_count) };
+    let filter_offsets = unsafe { slice::from_raw_parts(filter_offsets_ptr, filter_count as usize) };
+    let filter_counts = unsafe { slice::from_raw_parts(filter_counts_ptr, filter_count as usize) };
+    let result_offsets = unsafe { slice::from_raw_parts_mut(result_offsets_ptr, filter_count as usize) };
+    let result_counts = unsafe { slice::from_raw_parts_mut(result_counts_ptr, filter_count as usize) };
+
+    let mut all_results = Vec::new();
+    let mut scratch = Vec::new();
+    for i in 0..filter_count as usize {
+        let offset = filter_offsets[i] as usize;
+        let count = filter_counts[i] as usize;
+        if offset > levels.len() || offset + count > levels.len() {
+            return -1;
+        }
+        scratch.clear();
+        trie.match_filter_into(&levels[offset..offset + count], &mut scratch);
+        result_offsets[i] = all_results.len() as u32;
+        result_counts[i] = scratch.len() as u32;
+        all_results.extend_from_slice(&scratch);
+    }
+
+    if all_results.len() > topic_ids_cap as usize {
+        return -(all_results.len() as i32);
+    }
+
+    let topic_ids = unsafe { slice::from_raw_parts_mut(topic_ids_ptr, topic_ids_cap as usize) };
+    for (i, value_id) in all_results.into_iter().enumerate() {
+        topic_ids[i] = value_id;
+    }
+    result_counts.iter().sum::<u32>() as i32
+}
+
 // ============================================================
 // TopicFilterIterator operations
 // ============================================================
