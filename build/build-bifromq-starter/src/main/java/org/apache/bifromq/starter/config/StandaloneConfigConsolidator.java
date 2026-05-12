@@ -32,7 +32,9 @@ import java.nio.file.Paths;
 import java.security.cert.CertificateException;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.basehookloader.BaseHookLoader;
@@ -118,45 +120,135 @@ public class StandaloneConfigConsolidator {
 
     private static void consolidateMQTTServerConfig(StandaloneConfig config) {
         MQTTServerConfig mqttServerConfig = config.getMqttServiceConfig().getServer();
-        // fill default host
-        if (mqttServerConfig.getTcpListener().getHost() == null) {
-            mqttServerConfig.getTcpListener().setHost("0.0.0.0");
+        String defaultHost = mqttServerConfig.getTcpListener().getHost();
+        if (defaultHost == null) {
+            defaultHost = "0.0.0.0";
+            mqttServerConfig.getTcpListener().setHost(defaultHost);
         }
-        if (mqttServerConfig.getTlsListener().getHost() == null) {
-            mqttServerConfig.getTlsListener().setHost(mqttServerConfig.getTcpListener().getHost());
-        }
-        if (mqttServerConfig.getWsListener().getHost() == null) {
-            mqttServerConfig.getWsListener().setHost(mqttServerConfig.getTcpListener().getHost());
-        }
-        if (mqttServerConfig.getWssListener().getHost() == null) {
-            mqttServerConfig.getWssListener().setHost(mqttServerConfig.getTcpListener().getHost());
-        }
-        // fill self-signed certificate for ssl connection
-        if ((mqttServerConfig.getWssListener().isEnable()
-            && mqttServerConfig.getWssListener().getSslConfig() == null)
-            || (mqttServerConfig.getTlsListener().isEnable()
-            && mqttServerConfig.getTlsListener().getSslConfig() == null)) {
-            try {
-                ServerSSLContextConfig sslContextConfig = genSelfSignedServerCert();
-                if (mqttServerConfig.getTlsListener().isEnable()
-                    && mqttServerConfig.getTlsListener().getSslConfig() == null) {
-                    mqttServerConfig.getTlsListener().setSslConfig(sslContextConfig);
-                }
-                if (mqttServerConfig.getWssListener().isEnable()
-                    && mqttServerConfig.getWssListener().getSslConfig() == null) {
-                    mqttServerConfig.getWssListener().setSslConfig(sslContextConfig);
-                }
-            } catch (Throwable e) {
-                log.warn("Unable to generate self-signed certificate, mqtt over tls or wss will be disabled", e);
-                if (mqttServerConfig.getTlsListener().isEnable()
-                    && mqttServerConfig.getTlsListener().getSslConfig() == null) {
-                    mqttServerConfig.getTlsListener().setEnable(false);
-                }
-                if (mqttServerConfig.getWssListener().isEnable()
-                    && mqttServerConfig.getWssListener().getSslConfig() == null) {
-                    mqttServerConfig.getWssListener().setEnable(false);
-                }
+        String hostForDefault = defaultHost;
+        mqttServerConfig.effectiveTcpListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.getHost() == null) {
+                listener.setHost(hostForDefault);
             }
+        });
+        mqttServerConfig.effectiveTlsListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.getHost() == null) {
+                listener.setHost(hostForDefault);
+            }
+        });
+        mqttServerConfig.effectiveWsListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.getHost() == null) {
+                listener.setHost(hostForDefault);
+            }
+        });
+        mqttServerConfig.effectiveWssListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.getHost() == null) {
+                listener.setHost(hostForDefault);
+            }
+        });
+        mqttServerConfig.effectiveQuicListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.getHost() == null) {
+                listener.setHost(hostForDefault);
+            }
+        });
+        consolidateSslListeners(mqttServerConfig);
+        validateMQTTListeners(mqttServerConfig);
+    }
+
+    private static void consolidateSslListeners(MQTTServerConfig mqttServerConfig) {
+        boolean needSelfSignedCert = mqttServerConfig.effectiveTlsListeners().values().stream()
+            .anyMatch(listener -> listener.isEnable() && listener.getSslConfig() == null)
+            || mqttServerConfig.effectiveWssListeners().values().stream()
+            .anyMatch(listener -> listener.isEnable() && listener.getSslConfig() == null);
+        if (!needSelfSignedCert) {
+            return;
+        }
+        try {
+            ServerSSLContextConfig sslContextConfig = genSelfSignedServerCert();
+            mqttServerConfig.effectiveTlsListeners().values().forEach(listener -> {
+                if (listener.isEnable() && listener.getSslConfig() == null) {
+                    listener.setSslConfig(sslContextConfig);
+                }
+            });
+            mqttServerConfig.effectiveWssListeners().values().forEach(listener -> {
+                if (listener.isEnable() && listener.getSslConfig() == null) {
+                    listener.setSslConfig(sslContextConfig);
+                }
+            });
+        } catch (Throwable e) {
+            log.warn("Unable to generate self-signed certificate, mqtt over tls or wss will be disabled", e);
+            mqttServerConfig.effectiveTlsListeners().values().forEach(listener -> {
+                if (listener.isEnable() && listener.getSslConfig() == null) {
+                    listener.setEnable(false);
+                }
+            });
+            mqttServerConfig.effectiveWssListeners().values().forEach(listener -> {
+                if (listener.isEnable() && listener.getSslConfig() == null) {
+                    listener.setEnable(false);
+                }
+            });
+        }
+    }
+
+    private static void validateMQTTListeners(MQTTServerConfig mqttServerConfig) {
+        Set<String> bindEndpoints = new HashSet<>();
+        mqttServerConfig.effectiveTcpListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.isEnable()) {
+                validateBindEndpoint(bindEndpoints, listenerId, listener.getHost(), listener.getPort(), "TCP");
+            }
+        });
+        mqttServerConfig.effectiveTlsListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.isEnable()) {
+                validateBindEndpoint(bindEndpoints, listenerId, listener.getHost(), listener.getPort(), "TCP");
+            }
+        });
+        mqttServerConfig.effectiveWsListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.isEnable()) {
+                validateBindEndpoint(bindEndpoints, listenerId, listener.getHost(), listener.getPort(), "TCP");
+            }
+        });
+        mqttServerConfig.effectiveWssListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.isEnable()) {
+                validateBindEndpoint(bindEndpoints, listenerId, listener.getHost(), listener.getPort(), "TCP");
+            }
+        });
+        mqttServerConfig.effectiveQuicListeners().forEach((listenerId, listener) -> {
+            requireListenerId(listenerId);
+            if (listener.isEnable()) {
+                validateBindEndpoint(bindEndpoints, listenerId, listener.getHost(), listener.getPort(), "UDP");
+            }
+        });
+    }
+
+    private static void requireListenerId(String listenerId) {
+        if (Strings.isNullOrEmpty(listenerId)) {
+            throw new IllegalArgumentException("MQTT listener id cannot be null or empty");
+        }
+    }
+
+    private static void validateBindEndpoint(Set<String> bindEndpoints,
+                                             String listenerId,
+                                             String host,
+                                             int port,
+                                             String socketProtocol) {
+        if (Strings.isNullOrEmpty(host)) {
+            throw new IllegalArgumentException("MQTT listener host cannot be null or empty: " + listenerId);
+        }
+        if (port <= 0 || port > 65535) {
+            throw new IllegalArgumentException("MQTT listener port is out of range: " + listenerId);
+        }
+        String endpoint = host + ":" + port + "/" + socketProtocol;
+        if (!bindEndpoints.add(endpoint)) {
+            throw new IllegalArgumentException("Duplicate MQTT listener bind endpoint: " + endpoint);
         }
     }
 

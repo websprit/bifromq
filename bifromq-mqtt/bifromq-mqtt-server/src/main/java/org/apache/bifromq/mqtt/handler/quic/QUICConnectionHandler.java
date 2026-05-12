@@ -71,9 +71,17 @@ public class QUICConnectionHandler extends ChannelInboundHandlerAdapter {
             .valueOf("QUIC_STREAM_ROUTER");
 
     private final MQTTSessionContext sessionContext;
+    private final String listenerId;
+    private final String transportType;
 
     public QUICConnectionHandler(MQTTSessionContext sessionContext) {
+        this(sessionContext, "default", "QUIC");
+    }
+
+    public QUICConnectionHandler(MQTTSessionContext sessionContext, String listenerId, String transportType) {
         this.sessionContext = sessionContext;
+        this.listenerId = listenerId;
+        this.transportType = transportType;
     }
 
     @Override
@@ -121,6 +129,8 @@ public class QUICConnectionHandler extends ChannelInboundHandlerAdapter {
         // Store session context at connection level (fixes #1)
         // This will be propagated to stream channels in QUICStreamInitializer
         quicChannel.attr(ChannelAttrs.MQTT_SESSION_CTX).set(sessionContext);
+        quicChannel.attr(ChannelAttrs.LISTENER_ID).set(listenerId);
+        quicChannel.attr(ChannelAttrs.TRANSPORT_TYPE).set(transportType);
 
         super.channelActive(ctx);
     }

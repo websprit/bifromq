@@ -13,27 +13,63 @@ spec:
   selector:
     {{- include "bifromq.selectorLabels" . | nindent 4 }}
   ports:
+    {{- if .Values.mqtt.tcpListeners }}
+    {{- range $listenerId, $listener := .Values.mqtt.tcpListeners }}
+    - name: {{ printf "mqtt-t-%s" $listenerId | trunc 15 | trimSuffix "-" }}
+      port: {{ required (printf "mqtt.tcpListeners.%s.port is required" $listenerId) $listener.port }}
+      targetPort: {{ required (printf "mqtt.tcpListeners.%s.port is required" $listenerId) $listener.port }}
+      protocol: TCP
+    {{- end }}
+    {{- else }}
     - name: mqtt-tcp
       port: {{ .Values.mqtt.tcpPort }}
       targetPort: mqtt-tcp
       protocol: TCP
+    {{- end }}
+    {{- if .Values.mqtt.tlsListeners }}
+    {{- range $listenerId, $listener := .Values.mqtt.tlsListeners }}
+    - name: {{ printf "mqtt-tls-%s" $listenerId | trunc 15 | trimSuffix "-" }}
+      port: {{ required (printf "mqtt.tlsListeners.%s.port is required" $listenerId) $listener.port }}
+      targetPort: {{ required (printf "mqtt.tlsListeners.%s.port is required" $listenerId) $listener.port }}
+      protocol: TCP
+    {{- end }}
+    {{- else }}
     {{- if .Values.mqtt.tlsEnabled }}
     - name: mqtt-tls
       port: {{ .Values.mqtt.tlsPort }}
       targetPort: mqtt-tls
       protocol: TCP
     {{- end }}
+    {{- end }}
+    {{- if .Values.mqtt.wsListeners }}
+    {{- range $listenerId, $listener := .Values.mqtt.wsListeners }}
+    - name: {{ printf "mqtt-ws-%s" $listenerId | trunc 15 | trimSuffix "-" }}
+      port: {{ required (printf "mqtt.wsListeners.%s.port is required" $listenerId) $listener.port }}
+      targetPort: {{ required (printf "mqtt.wsListeners.%s.port is required" $listenerId) $listener.port }}
+      protocol: TCP
+    {{- end }}
+    {{- else }}
     {{- if .Values.mqtt.wsEnabled }}
     - name: mqtt-ws
       port: {{ .Values.mqtt.wsPort }}
       targetPort: mqtt-ws
       protocol: TCP
     {{- end }}
+    {{- end }}
+    {{- if .Values.mqtt.wssListeners }}
+    {{- range $listenerId, $listener := .Values.mqtt.wssListeners }}
+    - name: {{ printf "mqtt-wss-%s" $listenerId | trunc 15 | trimSuffix "-" }}
+      port: {{ required (printf "mqtt.wssListeners.%s.port is required" $listenerId) $listener.port }}
+      targetPort: {{ required (printf "mqtt.wssListeners.%s.port is required" $listenerId) $listener.port }}
+      protocol: TCP
+    {{- end }}
+    {{- else }}
     {{- if .Values.mqtt.wssEnabled }}
     - name: mqtt-wss
       port: {{ .Values.mqtt.wssPort }}
       targetPort: mqtt-wss
       protocol: TCP
+    {{- end }}
     {{- end }}
     {{- if .Values.apiServer.enabled }}
     - name: http-api
@@ -41,11 +77,20 @@ spec:
       targetPort: http-api
       protocol: TCP
     {{- end }}
+    {{- if .Values.mqtt.quicListeners }}
+    {{- range $listenerId, $listener := .Values.mqtt.quicListeners }}
+    - name: {{ printf "mqtt-q-%s" $listenerId | trunc 15 | trimSuffix "-" }}
+      port: {{ required (printf "mqtt.quicListeners.%s.port is required" $listenerId) $listener.port }}
+      targetPort: {{ required (printf "mqtt.quicListeners.%s.port is required" $listenerId) $listener.port }}
+      protocol: UDP
+    {{- end }}
+    {{- else }}
     {{- if .Values.mqtt.quicEnabled }}
     - name: mqtt-quic
       port: {{ .Values.mqtt.quicPort }}
       targetPort: mqtt-quic
       protocol: UDP
+    {{- end }}
     {{- end }}
     - name: metrics
       port: 9090

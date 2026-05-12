@@ -31,4 +31,5 @@ public class WSSListenerConfig {
     private int port = 8443;
     private String wsPath = "/mqtt";
     private ServerSSLContextConfig sslConfig;
+    private String authProviderFQN;
 }

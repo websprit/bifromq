@@ -21,6 +21,7 @@ package org.apache.bifromq.mqtt;
 
 import com.google.protobuf.Struct;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
@@ -49,6 +50,7 @@ import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 @Accessors(fluent = true)
 @Setter
 public class MQTTBrokerBuilder implements IMQTTBrokerBuilder {
+    static final String DEFAULT_LISTENER_ID = "default";
     int connectTimeoutSeconds = 20;
     int connectRateLimit = 1000;
     int disconnectRate = 1000;
@@ -74,54 +76,69 @@ public class MQTTBrokerBuilder implements IMQTTBrokerBuilder {
     @Setter(AccessLevel.NONE)
     ILocalDistService distService;
     @Setter(AccessLevel.NONE)
-    ConnListenerBuilder.TCPConnListenerBuilder tcpListenerBuilder;
+    Map<String, ConnListenerBuilder.TCPConnListenerBuilder> tcpListenerBuilders = new LinkedHashMap<>();
     @Setter(AccessLevel.NONE)
-    ConnListenerBuilder.TLSConnListenerBuilder tlsListenerBuilder;
+    Map<String, ConnListenerBuilder.TLSConnListenerBuilder> tlsListenerBuilders = new LinkedHashMap<>();
     @Setter(AccessLevel.NONE)
-    ConnListenerBuilder.WSConnListenerBuilder wsListenerBuilder;
+    Map<String, ConnListenerBuilder.WSConnListenerBuilder> wsListenerBuilders = new LinkedHashMap<>();
     @Setter(AccessLevel.NONE)
-    ConnListenerBuilder.WSSConnListenerBuilder wssListenerBuilder;
+    Map<String, ConnListenerBuilder.WSSConnListenerBuilder> wssListenerBuilders = new LinkedHashMap<>();
     @Setter(AccessLevel.NONE)
-    QUICConnListenerBuilder quicListenerBuilder;
+    Map<String, QUICConnListenerBuilder> quicListenerBuilders = new LinkedHashMap<>();
 
     @Override
     public ConnListenerBuilder.TCPConnListenerBuilder buildTcpConnListener() {
-        if (tcpListenerBuilder == null) {
-            tcpListenerBuilder = new ConnListenerBuilder.TCPConnListenerBuilder(this);
-        }
-        return tcpListenerBuilder;
+        return buildTcpConnListener(DEFAULT_LISTENER_ID);
+    }
+
+    @Override
+    public ConnListenerBuilder.TCPConnListenerBuilder buildTcpConnListener(String listenerId) {
+        return tcpListenerBuilders.computeIfAbsent(requireListenerId(listenerId),
+            id -> new ConnListenerBuilder.TCPConnListenerBuilder(this, id));
     }
 
     @Override
     public ConnListenerBuilder.TLSConnListenerBuilder buildTLSConnListener() {
-        if (tlsListenerBuilder == null) {
-            tlsListenerBuilder = new ConnListenerBuilder.TLSConnListenerBuilder(this);
-        }
-        return tlsListenerBuilder;
+        return buildTLSConnListener(DEFAULT_LISTENER_ID);
+    }
+
+    @Override
+    public ConnListenerBuilder.TLSConnListenerBuilder buildTLSConnListener(String listenerId) {
+        return tlsListenerBuilders.computeIfAbsent(requireListenerId(listenerId),
+            id -> new ConnListenerBuilder.TLSConnListenerBuilder(this, id));
     }
 
     @Override
     public ConnListenerBuilder.WSConnListenerBuilder buildWSConnListener() {
-        if (wsListenerBuilder == null) {
-            wsListenerBuilder = new ConnListenerBuilder.WSConnListenerBuilder(this);
-        }
-        return wsListenerBuilder;
+        return buildWSConnListener(DEFAULT_LISTENER_ID);
+    }
+
+    @Override
+    public ConnListenerBuilder.WSConnListenerBuilder buildWSConnListener(String listenerId) {
+        return wsListenerBuilders.computeIfAbsent(requireListenerId(listenerId),
+            id -> new ConnListenerBuilder.WSConnListenerBuilder(this, id));
     }
 
     @Override
     public ConnListenerBuilder.WSSConnListenerBuilder buildWSSConnListener() {
-        if (wssListenerBuilder == null) {
-            wssListenerBuilder = new ConnListenerBuilder.WSSConnListenerBuilder(this);
-        }
-        return wssListenerBuilder;
+        return buildWSSConnListener(DEFAULT_LISTENER_ID);
+    }
+
+    @Override
+    public ConnListenerBuilder.WSSConnListenerBuilder buildWSSConnListener(String listenerId) {
+        return wssListenerBuilders.computeIfAbsent(requireListenerId(listenerId),
+            id -> new ConnListenerBuilder.WSSConnListenerBuilder(this, id));
     }
 
     @Override
     public QUICConnListenerBuilder buildQUICConnListener() {
-        if (quicListenerBuilder == null) {
-            quicListenerBuilder = new QUICConnListenerBuilder(this);
-        }
-        return quicListenerBuilder;
+        return buildQUICConnListener(DEFAULT_LISTENER_ID);
+    }
+
+    @Override
+    public QUICConnListenerBuilder buildQUICConnListener(String listenerId) {
+        return quicListenerBuilders.computeIfAbsent(requireListenerId(listenerId),
+            id -> new QUICConnListenerBuilder(this, id));
     }
 
     public MQTTBrokerBuilder distClient(IDistClient distClient) {
@@ -139,5 +156,12 @@ public class MQTTBrokerBuilder implements IMQTTBrokerBuilder {
 
     public IMQTTBroker build() {
         return new MQTTBroker(this);
+    }
+
+    private static String requireListenerId(String listenerId) {
+        if (listenerId == null || listenerId.isEmpty()) {
+            throw new IllegalArgumentException("listenerId cannot be null or empty");
+        }
+        return listenerId;
     }
 }

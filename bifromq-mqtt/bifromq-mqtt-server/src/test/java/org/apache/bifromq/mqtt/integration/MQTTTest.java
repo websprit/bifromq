@@ -53,6 +53,7 @@ import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.inbox.server.IInboxServer;
 import org.apache.bifromq.inbox.store.IInboxStore;
 import org.apache.bifromq.mqtt.IMQTTBroker;
+import org.apache.bifromq.mqtt.MQTTBrokerBuilder;
 import org.apache.bifromq.mqtt.inbox.IMqttBrokerClient;
 import org.apache.bifromq.plugin.authprovider.IAuthProvider;
 import org.apache.bifromq.plugin.clientbalancer.IClientBalancer;
@@ -265,7 +266,7 @@ public abstract class MQTTTest {
             .settingProvider(settingProvider)
             .eventCollector(eventCollector)
             .build();
-        mqttBroker = IMQTTBroker.builder()
+        MQTTBrokerBuilder mqttBrokerBuilder = IMQTTBroker.builder()
             .rpcServerBuilder(rpcServerBuilder)
             .mqttBossELGThreads(1)
             .mqttWorkerELGThreads(4)
@@ -280,8 +281,9 @@ public abstract class MQTTTest {
             .retainClient(retainClient)
             .buildTcpConnListener()
             .host("127.0.0.1")
-            .buildListener()
-            .build();
+            .buildListener();
+        customizeMQTTBrokerBuilder(mqttBrokerBuilder);
+        mqttBroker = mqttBrokerBuilder.build();
 
         rpcServer = rpcServerBuilder.build();
         rpcServer.start();
@@ -387,6 +389,9 @@ public abstract class MQTTTest {
     }
 
     protected void doSetup(Method method) {
+    }
+
+    protected void customizeMQTTBrokerBuilder(MQTTBrokerBuilder brokerBuilder) {
     }
 
     @AfterMethod(groups = "integration")

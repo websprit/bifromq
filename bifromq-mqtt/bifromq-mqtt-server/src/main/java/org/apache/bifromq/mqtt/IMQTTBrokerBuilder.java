@@ -24,13 +24,23 @@ public interface IMQTTBrokerBuilder {
 
     ConnListenerBuilder.TCPConnListenerBuilder buildTcpConnListener();
 
+    ConnListenerBuilder.TCPConnListenerBuilder buildTcpConnListener(String listenerId);
+
     ConnListenerBuilder.TLSConnListenerBuilder buildTLSConnListener();
+
+    ConnListenerBuilder.TLSConnListenerBuilder buildTLSConnListener(String listenerId);
 
     ConnListenerBuilder.WSConnListenerBuilder buildWSConnListener();
 
+    ConnListenerBuilder.WSConnListenerBuilder buildWSConnListener(String listenerId);
+
     ConnListenerBuilder.WSSConnListenerBuilder buildWSSConnListener();
 
+    ConnListenerBuilder.WSSConnListenerBuilder buildWSSConnListener(String listenerId);
+
     QUICConnListenerBuilder buildQUICConnListener();
+
+    QUICConnListenerBuilder buildQUICConnListener(String listenerId);
 
     IMQTTBroker build();
 }

@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.protobuf.Struct;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.Getter;
 import lombok.Setter;
@@ -41,6 +42,8 @@ import org.apache.bifromq.starter.config.model.serde.StructMapSerializer;
 @Getter
 @Setter
 public class MQTTServerConfig {
+    public static final String DEFAULT_LISTENER_ID = "default";
+
     private boolean enable = true;
     private int connTimeoutSec = 20;
     private int maxConnPerSec = 2000;
@@ -69,4 +72,69 @@ public class MQTTServerConfig {
     @JsonSetter(nulls = Nulls.SKIP)
     @JsonMerge
     private QUICListenerConfig quicListener = new QUICListenerConfig();
+    @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
+    private Map<String, TCPListenerConfig> tcpListeners = new LinkedHashMap<>();
+    @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
+    private Map<String, TLSListenerConfig> tlsListeners = new LinkedHashMap<>();
+    @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
+    private Map<String, WSListenerConfig> wsListeners = new LinkedHashMap<>();
+    @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
+    private Map<String, WSSListenerConfig> wssListeners = new LinkedHashMap<>();
+    @JsonSetter(nulls = Nulls.SKIP)
+    @JsonMerge
+    private Map<String, QUICListenerConfig> quicListeners = new LinkedHashMap<>();
+
+    public Map<String, TCPListenerConfig> effectiveTcpListeners() {
+        return tcpListeners.isEmpty() ? legacyTcpListener() : tcpListeners;
+    }
+
+    public Map<String, TLSListenerConfig> effectiveTlsListeners() {
+        return tlsListeners.isEmpty() ? legacyTlsListener() : tlsListeners;
+    }
+
+    public Map<String, WSListenerConfig> effectiveWsListeners() {
+        return wsListeners.isEmpty() ? legacyWsListener() : wsListeners;
+    }
+
+    public Map<String, WSSListenerConfig> effectiveWssListeners() {
+        return wssListeners.isEmpty() ? legacyWssListener() : wssListeners;
+    }
+
+    public Map<String, QUICListenerConfig> effectiveQuicListeners() {
+        return quicListeners.isEmpty() ? legacyQuicListener() : quicListeners;
+    }
+
+    private Map<String, TCPListenerConfig> legacyTcpListener() {
+        Map<String, TCPListenerConfig> listeners = new LinkedHashMap<>();
+        listeners.put(DEFAULT_LISTENER_ID, tcpListener);
+        return listeners;
+    }
+
+    private Map<String, TLSListenerConfig> legacyTlsListener() {
+        Map<String, TLSListenerConfig> listeners = new LinkedHashMap<>();
+        listeners.put(DEFAULT_LISTENER_ID, tlsListener);
+        return listeners;
+    }
+
+    private Map<String, WSListenerConfig> legacyWsListener() {
+        Map<String, WSListenerConfig> listeners = new LinkedHashMap<>();
+        listeners.put(DEFAULT_LISTENER_ID, wsListener);
+        return listeners;
+    }
+
+    private Map<String, WSSListenerConfig> legacyWssListener() {
+        Map<String, WSSListenerConfig> listeners = new LinkedHashMap<>();
+        listeners.put(DEFAULT_LISTENER_ID, wssListener);
+        return listeners;
+    }
+
+    private Map<String, QUICListenerConfig> legacyQuicListener() {
+        Map<String, QUICListenerConfig> listeners = new LinkedHashMap<>();
+        listeners.put(DEFAULT_LISTENER_ID, quicListener);
+        return listeners;
+    }
 }

@@ -29,6 +29,7 @@ import lombok.NonNull;
  */
 public final class QUICConnListenerBuilder {
     private final MQTTBrokerBuilder serverBuilder;
+    private final String listenerId;
     private String host;
     private int port = 14567;
     private QuicSslContext sslContext;
@@ -38,8 +39,9 @@ public final class QUICConnListenerBuilder {
     private long initialMaxStreamDataBidiRemote = 1_000_000;
     private long initialMaxStreamsBidi = 100;
 
-    QUICConnListenerBuilder(MQTTBrokerBuilder builder) {
+    QUICConnListenerBuilder(MQTTBrokerBuilder builder, String listenerId) {
         this.serverBuilder = builder;
+        this.listenerId = listenerId;
     }
 
     public QUICConnListenerBuilder host(String host) {
@@ -86,6 +88,14 @@ public final class QUICConnListenerBuilder {
 
     public MQTTBrokerBuilder buildListener() {
         return serverBuilder;
+    }
+
+    public String listenerId() {
+        return listenerId;
+    }
+
+    public String transportType() {
+        return "QUIC";
     }
 
     // Getters for MQTTBroker to consume

@@ -46,6 +46,8 @@ import io.netty.handler.codec.mqtt.MqttEncoder;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.incubator.codec.quic.QuicServerCodecBuilder;
 import java.net.InetSocketAddress;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.baseenv.NettyEnv;
@@ -77,11 +79,11 @@ class MQTTBroker implements IMQTTBroker {
     private final EventLoopGroup workerGroup;
     private final RateLimiter connRateLimiter;
     private volatile MQTTSessionContext sessionContext;
-    private ChannelFuture tcpChannelF;
-    private ChannelFuture tlsChannelF;
-    private ChannelFuture wsChannelF;
-    private ChannelFuture wssChannelF;
-    private ChannelFuture quicChannelF;
+    private final Map<String, ChannelFuture> tcpChannelFs = new LinkedHashMap<>();
+    private final Map<String, ChannelFuture> tlsChannelFs = new LinkedHashMap<>();
+    private final Map<String, ChannelFuture> wsChannelFs = new LinkedHashMap<>();
+    private final Map<String, ChannelFuture> wssChannelFs = new LinkedHashMap<>();
+    private final Map<String, ChannelFuture> quicChannelFs = new LinkedHashMap<>();
     private final UserPropsCustomizerFactory userPropsCustomizerFactory;
 
     public MQTTBroker(MQTTBrokerBuilder builder) {
@@ -119,30 +121,40 @@ class MQTTBroker implements IMQTTBroker {
                     .build();
             log.info("Starting MQTT broker");
             log.debug("Starting server channel");
-            if (builder.tcpListenerBuilder != null) {
-                tcpChannelF = this.bindTCPChannel(builder.tcpListenerBuilder);
-                Channel channel = tcpChannelF.sync().channel();
-                log.debug("Accepting mqtt connection over tcp channel at {}", channel.localAddress());
+            for (ConnListenerBuilder.TCPConnListenerBuilder listenerBuilder : builder.tcpListenerBuilders.values()) {
+                ChannelFuture channelF = bindTCPChannel(listenerBuilder);
+                tcpChannelFs.put(listenerBuilder.listenerId(), channelF);
+                Channel channel = channelF.sync().channel();
+                log.debug("Accepting mqtt connection over tcp listener[{}] at {}",
+                    listenerBuilder.listenerId(), channel.localAddress());
             }
-            if (builder.tlsListenerBuilder != null) {
-                tlsChannelF = this.bindTLSChannel(builder.tlsListenerBuilder);
-                Channel channel = tlsChannelF.sync().channel();
-                log.debug("Accepting mqtt connection over tls channel at {}", channel.localAddress());
+            for (ConnListenerBuilder.TLSConnListenerBuilder listenerBuilder : builder.tlsListenerBuilders.values()) {
+                ChannelFuture channelF = bindTLSChannel(listenerBuilder);
+                tlsChannelFs.put(listenerBuilder.listenerId(), channelF);
+                Channel channel = channelF.sync().channel();
+                log.debug("Accepting mqtt connection over tls listener[{}] at {}",
+                    listenerBuilder.listenerId(), channel.localAddress());
             }
-            if (builder.wsListenerBuilder != null) {
-                wsChannelF = this.bindWSChannel(builder.wsListenerBuilder);
-                Channel channel = wsChannelF.sync().channel();
-                log.debug("Accepting mqtt connection over ws channel at {}", channel.localAddress());
+            for (ConnListenerBuilder.WSConnListenerBuilder listenerBuilder : builder.wsListenerBuilders.values()) {
+                ChannelFuture channelF = bindWSChannel(listenerBuilder);
+                wsChannelFs.put(listenerBuilder.listenerId(), channelF);
+                Channel channel = channelF.sync().channel();
+                log.debug("Accepting mqtt connection over ws listener[{}] at {}",
+                    listenerBuilder.listenerId(), channel.localAddress());
             }
-            if (builder.wssListenerBuilder != null) {
-                wssChannelF = this.bindWSSChannel(builder.wssListenerBuilder);
-                Channel channel = wssChannelF.sync().channel();
-                log.debug("Accepting mqtt connection over wss channel at {}", channel.localAddress());
+            for (ConnListenerBuilder.WSSConnListenerBuilder listenerBuilder : builder.wssListenerBuilders.values()) {
+                ChannelFuture channelF = bindWSSChannel(listenerBuilder);
+                wssChannelFs.put(listenerBuilder.listenerId(), channelF);
+                Channel channel = channelF.sync().channel();
+                log.debug("Accepting mqtt connection over wss listener[{}] at {}",
+                    listenerBuilder.listenerId(), channel.localAddress());
             }
-            if (builder.quicListenerBuilder != null) {
-                quicChannelF = this.bindQUICChannel(builder.quicListenerBuilder);
-                Channel channel = quicChannelF.sync().channel();
-                log.debug("Accepting mqtt connection over quic channel at {}", channel.localAddress());
+            for (QUICConnListenerBuilder listenerBuilder : builder.quicListenerBuilders.values()) {
+                ChannelFuture channelF = bindQUICChannel(listenerBuilder);
+                quicChannelFs.put(listenerBuilder.listenerId(), channelF);
+                Channel channel = channelF.sync().channel();
+                log.debug("Accepting mqtt connection over quic listener[{}] at {}",
+                    listenerBuilder.listenerId(), channel.localAddress());
             }
             log.info("MQTT broker started");
         } catch (InterruptedException e) {
@@ -158,26 +170,26 @@ class MQTTBroker implements IMQTTBroker {
             new Thread(this::close, "mqtt-broker-close").start();
             return;
         }
-        if (tcpChannelF != null) {
-            tcpChannelF.channel().close().syncUninterruptibly();
-            log.debug("Stopped accepting mqtt connection over tcp channel");
-        }
-        if (tlsChannelF != null) {
-            tlsChannelF.channel().close().syncUninterruptibly();
-            log.debug("Stopped accepting mqtt connection over tls channel");
-        }
-        if (wsChannelF != null) {
-            wsChannelF.channel().close().syncUninterruptibly();
-            log.debug("Stopped accepting mqtt connection over ws channel");
-        }
-        if (wssChannelF != null) {
-            wssChannelF.channel().close().syncUninterruptibly();
-            log.debug("Stopped accepting mqtt connection over wss channel");
-        }
-        if (quicChannelF != null) {
-            quicChannelF.channel().close().syncUninterruptibly();
-            log.debug("Stopped accepting mqtt connection over quic channel");
-        }
+        tcpChannelFs.forEach((listenerId, channelF) -> {
+            channelF.channel().close().syncUninterruptibly();
+            log.debug("Stopped accepting mqtt connection over tcp listener[{}]", listenerId);
+        });
+        tlsChannelFs.forEach((listenerId, channelF) -> {
+            channelF.channel().close().syncUninterruptibly();
+            log.debug("Stopped accepting mqtt connection over tls listener[{}]", listenerId);
+        });
+        wsChannelFs.forEach((listenerId, channelF) -> {
+            channelF.channel().close().syncUninterruptibly();
+            log.debug("Stopped accepting mqtt connection over ws listener[{}]", listenerId);
+        });
+        wssChannelFs.forEach((listenerId, channelF) -> {
+            channelF.channel().close().syncUninterruptibly();
+            log.debug("Stopped accepting mqtt connection over wss listener[{}]", listenerId);
+        });
+        quicChannelFs.forEach((listenerId, channelF) -> {
+            channelF.channel().close().syncUninterruptibly();
+            log.debug("Stopped accepting mqtt connection over quic listener[{}]", listenerId);
+        });
         sessionContext.localSessionRegistry.disconnectAll(builder.disconnectRate).join();
         log.debug("All mqtt connection closed");
 
@@ -291,16 +303,18 @@ class MQTTBroker implements IMQTTBroker {
     }
 
     @SuppressWarnings("unchecked")
-    private <T extends ConnListenerBuilder<T>> ChannelFuture buildChannel(T builder,
+    private <T extends ConnListenerBuilder<T>> ChannelFuture buildChannel(T listenerBuilder,
             final MQTTChannelInitializer chInitializer) {
         ServerBootstrap b = new ServerBootstrap().group(bossGroup, workerGroup)
                 .channel(NettyEnv.determineServerSocketChannelClass(bossGroup))
                 .childHandler(chInitializer)
-                .childAttr(ChannelAttrs.MQTT_SESSION_CTX, sessionContext);
-        builder.options.forEach((k, v) -> b.option((ChannelOption<? super Object>) k, v));
-        builder.childOptions.forEach((k, v) -> b.childOption((ChannelOption<? super Object>) k, v));
+                .childAttr(ChannelAttrs.MQTT_SESSION_CTX, sessionContext)
+                .childAttr(ChannelAttrs.LISTENER_ID, listenerBuilder.listenerId())
+                .childAttr(ChannelAttrs.TRANSPORT_TYPE, listenerBuilder.transportType());
+        listenerBuilder.options.forEach((k, v) -> b.option((ChannelOption<? super Object>) k, v));
+        listenerBuilder.childOptions.forEach((k, v) -> b.childOption((ChannelOption<? super Object>) k, v));
         // Bind and start to accept incoming connections.
-        return b.bind(builder.host, builder.port);
+        return b.bind(listenerBuilder.host, listenerBuilder.port);
     }
 
     private abstract static class MQTTChannelInitializer extends ChannelInitializer<SocketChannel> {
@@ -329,7 +343,8 @@ class MQTTBroker implements IMQTTBroker {
                 .initialMaxStreamDataBidirectionalRemote(connBuilder.initialMaxStreamDataBidiRemote())
                 .initialMaxStreamsBidirectional(connBuilder.initialMaxStreamsBidi())
                 .tokenHandler(new HmacQuicTokenHandler())
-                .handler(new QUICConnectionHandler(sessionContext))
+                .handler(new QUICConnectionHandler(sessionContext, connBuilder.listenerId(),
+                    connBuilder.transportType()))
                 .streamHandler(new QUICStreamInitializer(
                         builder.connectTimeoutSeconds,
                         builder.maxBytesInMessage,

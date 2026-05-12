@@ -14,12 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.bifromq.plugin.authprovider;
 
-
+import java.util.concurrent.CompletableFuture;
 import org.apache.bifromq.plugin.authprovider.type.CheckResult;
 import org.apache.bifromq.plugin.authprovider.type.Denied;
 import org.apache.bifromq.plugin.authprovider.type.Error;
@@ -34,10 +34,30 @@ import org.apache.bifromq.plugin.authprovider.type.MQTT5ExtendedAuthResult;
 import org.apache.bifromq.plugin.authprovider.type.MQTTAction;
 import org.apache.bifromq.plugin.authprovider.type.Success;
 import org.apache.bifromq.type.ClientInfo;
-import java.util.concurrent.CompletableFuture;
 import org.pf4j.ExtensionPoint;
 
 public interface IAuthProvider extends ExtensionPoint {
+    /**
+     * Return a listener-scoped auth provider. Existing providers can ignore listener identity by using this default.
+     *
+     * @param listenerId the MQTT listener id that accepted the connection
+     * @return the auth provider to use for this listener
+     */
+    default IAuthProvider forListener(String listenerId) {
+        return this;
+    }
+
+    /**
+     * Return a transport-and-listener-scoped auth provider.
+     *
+     * @param listenerId the MQTT listener id that accepted the connection
+     * @param transportType the MQTT transport type that accepted the connection
+     * @return the auth provider to use for this listener
+     */
+    default IAuthProvider forListener(String listenerId, String transportType) {
+        return forListener(listenerId);
+    }
+
     /**
      * Implement this method to hook authentication logic of mqtt3 client into BifroMQ.
      *
@@ -68,7 +88,14 @@ public interface IAuthProvider extends ExtensionPoint {
         }
         mqtt3AuthDataBuilder.setRemoteAddr(authData.getRemoteAddr());
         mqtt3AuthDataBuilder.setRemotePort(authData.getRemotePort());
+        mqtt3AuthDataBuilder.setChannelId(authData.getChannelId());
         mqtt3AuthDataBuilder.setClientId(authData.getClientId());
+        if (authData.hasListenerId()) {
+            mqtt3AuthDataBuilder.setListenerId(authData.getListenerId());
+        }
+        if (authData.hasTransportType()) {
+            mqtt3AuthDataBuilder.setTransportType(authData.getTransportType());
+        }
         return auth(mqtt3AuthDataBuilder.build()).thenApply(mqtt3AuthResult -> {
             MQTT5AuthResult.Builder mqtt5AuthResultBuilder = MQTT5AuthResult.newBuilder();
             switch (mqtt3AuthResult.getTypeCase()) {

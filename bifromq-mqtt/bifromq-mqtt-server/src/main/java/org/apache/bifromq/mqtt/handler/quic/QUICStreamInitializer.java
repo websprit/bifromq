@@ -98,6 +98,8 @@ public class QUICStreamInitializer extends ChannelInitializer<QuicStreamChannel>
             return;
         }
         ch.attr(ChannelAttrs.MQTT_SESSION_CTX).set(sessionCtx);
+        ch.attr(ChannelAttrs.LISTENER_ID).set(ch.parent().attr(ChannelAttrs.LISTENER_ID).get());
+        ch.attr(ChannelAttrs.TRANSPORT_TYPE).set(ch.parent().attr(ChannelAttrs.TRANSPORT_TYPE).get());
 
         // Propagate remote address from parent QuicChannel (fixes #3)
         java.net.InetSocketAddress peerAddr = ch.parent().attr(QUICConnectionHandler.QUIC_PEER_ADDR).get();

@@ -34,6 +34,8 @@ import javax.net.ssl.SSLPeerUnverifiedException;
 public class ChannelAttrs {
     public static final AttributeKey<MQTTSessionContext> MQTT_SESSION_CTX = AttributeKey.valueOf("MQTTSessionContext");
     public static final AttributeKey<InetSocketAddress> PEER_ADDR = AttributeKey.valueOf("PeerAddress");
+    public static final AttributeKey<String> LISTENER_ID = AttributeKey.valueOf("MQTTListenerId");
+    public static final AttributeKey<String> TRANSPORT_TYPE = AttributeKey.valueOf("MQTTTransportType");
 
     public static X509Certificate clientCertificate(Channel channel) {
         SslHandler sslHandler = channel.pipeline().get(SslHandler.class);
@@ -60,6 +62,14 @@ public class ChannelAttrs {
 
     public static MQTTSessionContext mqttSessionContext(ChannelHandlerContext ctx) {
         return ctx.channel().attr(MQTT_SESSION_CTX).get();
+    }
+
+    public static String listenerId(Channel channel) {
+        return channel.attr(LISTENER_ID).get();
+    }
+
+    public static String transportType(Channel channel) {
+        return channel.attr(TRANSPORT_TYPE).get();
     }
 
     public static ChannelTrafficShapingHandler trafficShaper(ChannelHandlerContext ctx) {

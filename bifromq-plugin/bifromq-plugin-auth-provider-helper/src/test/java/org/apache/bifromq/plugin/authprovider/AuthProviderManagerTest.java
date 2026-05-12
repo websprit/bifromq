@@ -56,6 +56,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.mockito.ArgumentCaptor;
@@ -177,6 +178,44 @@ public class AuthProviderManagerTest {
         manager.close();
     }
 
+    @Test
+    public void listenerScopedAuthProviderSelectedByTransportAndListenerId() {
+        IAuthProvider provider1 = new FirstTestAuthProvider();
+        IAuthProvider provider2 = new SecondTestAuthProvider();
+        when(pluginManager.getExtensions(IAuthProvider.class)).thenReturn(Arrays.asList(provider1, provider2));
+        manager = new AuthProviderManager(provider1.getClass().getName(),
+            Map.of(AuthProviderManager.listenerKey("TCP", "edge"), provider2.getClass().getName()),
+            pluginManager, settingProvider, eventCollector);
+
+        MQTT3AuthResult defaultResult = manager.forListener("edge", "WS").auth(mockAuth3Data).join();
+        MQTT3AuthResult edgeResult = manager.forListener("edge", "TCP").auth(mockAuth3Data).join();
+
+        assertEquals(defaultResult.getOk().getTenantId(), "FirstProvider");
+        assertEquals(edgeResult.getOk().getTenantId(), "SecondProvider");
+        manager.close();
+    }
+
+    @Test
+    public void listenerScopedAuthProviderFallsBackToGlobal() {
+        IAuthProvider provider1 = new FirstTestAuthProvider();
+        IAuthProvider provider2 = new SecondTestAuthProvider();
+        when(pluginManager.getExtensions(IAuthProvider.class)).thenReturn(Arrays.asList(provider1, provider2));
+        manager = new AuthProviderManager(provider1.getClass().getName(),
+            Map.of(AuthProviderManager.listenerKey("TCP", "edge"), provider2.getClass().getName()),
+            pluginManager, settingProvider, eventCollector);
+
+        MQTT3AuthResult result = manager.forListener("missing", "TCP").auth(mockAuth3Data).join();
+
+        assertEquals(result.getOk().getTenantId(), "FirstProvider");
+        manager.close();
+    }
+
+    @Test(expectedExceptions = AuthProviderPluginException.class)
+    public void listenerScopedAuthProviderNotFound() {
+        manager = new AuthProviderManager(mockProvider.getClass().getName(),
+            Map.of(AuthProviderManager.listenerKey("TCP", "edge"), "Fake"),
+            pluginManager, settingProvider, eventCollector);
+    }
 
     @Test(expectedExceptions = AuthProviderPluginException.class)
     public void pluginNotFound() {

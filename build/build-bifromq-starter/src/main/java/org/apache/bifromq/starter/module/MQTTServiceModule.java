@@ -19,8 +19,8 @@
 
 package org.apache.bifromq.starter.module;
 
-import static org.apache.bifromq.starter.module.SSLUtil.buildServerSslContext;
 import static org.apache.bifromq.starter.module.SSLUtil.buildQuicSslContext;
+import static org.apache.bifromq.starter.module.SSLUtil.buildServerSslContext;
 
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
@@ -43,7 +43,6 @@ import org.apache.bifromq.retain.client.IRetainClient;
 import org.apache.bifromq.sessiondict.client.ISessionDictClient;
 import org.apache.bifromq.starter.config.StandaloneConfig;
 import org.apache.bifromq.starter.config.model.mqtt.MQTTServerConfig;
-import org.apache.bifromq.starter.config.model.mqtt.listener.QUICListenerConfig;
 
 public class MQTTServiceModule extends AbstractModule {
     @Override
@@ -88,50 +87,60 @@ public class MQTTServiceModule extends AbstractModule {
                     .writeLimit(serverConfig.getMaxConnBandwidth())
                     .maxBytesInMessage(serverConfig.getMaxMsgByteSize())
                     .userPropsCustomizerFactoryConfig(serverConfig.getUserPropsCustomizerFactoryConfig());
-            if (serverConfig.getTcpListener().isEnable()) {
-                brokerBuilder.buildTcpConnListener()
-                        .host(serverConfig.getTcpListener().getHost())
-                        .port(serverConfig.getTcpListener().getPort())
+            serverConfig.effectiveTcpListeners().forEach((listenerId, listenerConfig) -> {
+                if (listenerConfig.isEnable()) {
+                    brokerBuilder.buildTcpConnListener(listenerId)
+                        .host(listenerConfig.getHost())
+                        .port(listenerConfig.getPort())
                         .buildListener();
-            }
-            if (serverConfig.getTlsListener().isEnable()) {
-                brokerBuilder.buildTLSConnListener()
-                        .host(serverConfig.getTlsListener().getHost())
-                        .port(serverConfig.getTlsListener().getPort())
-                        .sslContext(buildServerSslContext(serverConfig.getTlsListener().getSslConfig()))
-                        .buildListener();
-            }
-            if (serverConfig.getWsListener().isEnable()) {
-                brokerBuilder.buildWSConnListener()
-                        .host(serverConfig.getWsListener().getHost())
-                        .port(serverConfig.getWsListener().getPort())
-                        .path(serverConfig.getWsListener().getWsPath())
-                        .buildListener();
-            }
-            if (serverConfig.getWssListener().isEnable()) {
-                brokerBuilder.buildWSSConnListener()
-                        .host(serverConfig.getWssListener().getHost())
-                        .port(serverConfig.getWssListener().getPort())
-                        .path(serverConfig.getWssListener().getWsPath())
-                        .sslContext(buildServerSslContext(serverConfig.getWssListener().getSslConfig()))
-                        .buildListener();
-            }
-            QUICListenerConfig quicListenerConfig = serverConfig.getQuicListener();
-            if (quicListenerConfig.isEnable()) {
-                if (quicListenerConfig.getSslConfig() == null) {
-                    throw new IllegalArgumentException("QUIC listener requires SSL configuration (TLS is mandatory)");
                 }
-                brokerBuilder.buildQUICConnListener()
-                        .host(quicListenerConfig.getHost())
-                        .port(quicListenerConfig.getPort())
-                        .sslContext(buildQuicSslContext(quicListenerConfig.getSslConfig()))
-                        .maxIdleTimeout(quicListenerConfig.getMaxIdleTimeoutMs(), TimeUnit.MILLISECONDS)
-                        .initialMaxData(quicListenerConfig.getInitialMaxData())
-                        .initialMaxStreamDataBidiLocal(quicListenerConfig.getInitialMaxStreamDataBidiLocal())
-                        .initialMaxStreamDataBidiRemote(quicListenerConfig.getInitialMaxStreamDataBidiRemote())
-                        .initialMaxStreamsBidi(quicListenerConfig.getInitialMaxStreamsBidi())
+            });
+            serverConfig.effectiveTlsListeners().forEach((listenerId, listenerConfig) -> {
+                if (listenerConfig.isEnable()) {
+                    brokerBuilder.buildTLSConnListener(listenerId)
+                        .host(listenerConfig.getHost())
+                        .port(listenerConfig.getPort())
+                        .sslContext(buildServerSslContext(listenerConfig.getSslConfig()))
                         .buildListener();
-            }
+                }
+            });
+            serverConfig.effectiveWsListeners().forEach((listenerId, listenerConfig) -> {
+                if (listenerConfig.isEnable()) {
+                    brokerBuilder.buildWSConnListener(listenerId)
+                        .host(listenerConfig.getHost())
+                        .port(listenerConfig.getPort())
+                        .path(listenerConfig.getWsPath())
+                        .buildListener();
+                }
+            });
+            serverConfig.effectiveWssListeners().forEach((listenerId, listenerConfig) -> {
+                if (listenerConfig.isEnable()) {
+                    brokerBuilder.buildWSSConnListener(listenerId)
+                        .host(listenerConfig.getHost())
+                        .port(listenerConfig.getPort())
+                        .path(listenerConfig.getWsPath())
+                        .sslContext(buildServerSslContext(listenerConfig.getSslConfig()))
+                        .buildListener();
+                }
+            });
+            serverConfig.effectiveQuicListeners().forEach((listenerId, listenerConfig) -> {
+                if (listenerConfig.isEnable()) {
+                    if (listenerConfig.getSslConfig() == null) {
+                        throw new IllegalArgumentException(
+                            "QUIC listener requires SSL configuration (TLS is mandatory): " + listenerId);
+                    }
+                    brokerBuilder.buildQUICConnListener(listenerId)
+                        .host(listenerConfig.getHost())
+                        .port(listenerConfig.getPort())
+                        .sslContext(buildQuicSslContext(listenerConfig.getSslConfig()))
+                        .maxIdleTimeout(listenerConfig.getMaxIdleTimeoutMs(), TimeUnit.MILLISECONDS)
+                        .initialMaxData(listenerConfig.getInitialMaxData())
+                        .initialMaxStreamDataBidiLocal(listenerConfig.getInitialMaxStreamDataBidiLocal())
+                        .initialMaxStreamDataBidiRemote(listenerConfig.getInitialMaxStreamDataBidiRemote())
+                        .initialMaxStreamsBidi(listenerConfig.getInitialMaxStreamsBidi())
+                        .buildListener();
+                }
+            });
             return Optional.of(brokerBuilder.build());
         }
 

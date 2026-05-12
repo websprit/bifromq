@@ -25,11 +25,13 @@ import static org.apache.bifromq.metrics.TenantMetric.MqttTransientSubCountGauge
 import com.google.common.base.Ticker;
 import io.netty.channel.ChannelHandlerContext;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.base.util.FutureTracker;
+import org.apache.bifromq.mqtt.handler.ChannelAttrs;
 import org.apache.bifromq.dist.client.IDistClient;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.mqtt.service.ILocalDistService;
@@ -104,7 +106,15 @@ public final class MQTTSessionContext {
 
     public IAuthProvider authProvider(ChannelHandlerContext ctx) {
         // a wrapper to ensure async fifo semantic for check call
-        return new MQTTSessionAuthProvider(authProvider, ctx);
+        String listenerId = ChannelAttrs.listenerId(ctx.channel());
+        String transportType = ChannelAttrs.transportType(ctx.channel());
+        IAuthProvider listenerAuthProvider = Optional.ofNullable(listenerId)
+            .map(id -> authProvider.forListener(id, transportType))
+            .orElse(authProvider);
+        if (listenerAuthProvider == null) {
+            listenerAuthProvider = authProvider;
+        }
+        return new MQTTSessionAuthProvider(listenerAuthProvider, ctx);
     }
 
     public AtomicLong getTransientSubNumGauge(String tenantId) {

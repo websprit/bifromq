@@ -79,6 +79,8 @@ public class AuthUtil {
                 authData.setRemoteAddr(ip.getHostAddress());
             }
         }
+        Optional.ofNullable(ChannelAttrs.listenerId(channel)).ifPresent(authData::setListenerId);
+        Optional.ofNullable(ChannelAttrs.transportType(channel)).ifPresent(authData::setTransportType);
         return authData.build();
     }
 
@@ -108,6 +110,8 @@ public class AuthUtil {
                 authData.setRemoteAddr(ip.getHostAddress());
             }
         }
+        Optional.ofNullable(ChannelAttrs.listenerId(channel)).ifPresent(authData::setListenerId);
+        Optional.ofNullable(ChannelAttrs.transportType(channel)).ifPresent(authData::setTransportType);
         authData.setResponseInfo(requestResponseInformation(msg.variableHeader().properties()));
         UserProperties userProperties = toUserProperties(msg.variableHeader().properties());
         return authData.setUserProps(userProperties).build();

@@ -18,8 +18,47 @@ data:
 
     mqttServiceConfig:
       server:
+        {{- if .Values.mqtt.tcpListeners }}
+        tcpListeners:
+          {{- range $listenerId, $listener := .Values.mqtt.tcpListeners }}
+          {{ $listenerId }}:
+            enable: {{ default true $listener.enable }}
+            {{- with $listener.host }}
+            host: {{ . | quote }}
+            {{- end }}
+            port: {{ required (printf "mqtt.tcpListeners.%s.port is required" $listenerId) $listener.port }}
+            {{- with $listener.authProviderFQN }}
+            authProviderFQN: {{ . | quote }}
+            {{- end }}
+          {{- end }}
+        {{- else }}
         tcpListener:
           port: {{ .Values.mqtt.tcpPort }}
+        {{- end }}
+        {{- if .Values.mqtt.tlsListeners }}
+        tlsListeners:
+          {{- range $listenerId, $listener := .Values.mqtt.tlsListeners }}
+          {{ $listenerId }}:
+            enable: {{ default true $listener.enable }}
+            {{- with $listener.host }}
+            host: {{ . | quote }}
+            {{- end }}
+            port: {{ required (printf "mqtt.tlsListeners.%s.port is required" $listenerId) $listener.port }}
+            {{- with $listener.authProviderFQN }}
+            authProviderFQN: {{ . | quote }}
+            {{- end }}
+            {{- if $listener.sslConfig }}
+            sslConfig:
+              {{- toYaml $listener.sslConfig | nindent 14 }}
+            {{- else if $.Values.tls.certSecretName }}
+            sslConfig:
+              certFile: "{{ $.Values.tls.mountPath }}/{{ $.Values.tls.certFile }}"
+              keyFile: "{{ $.Values.tls.mountPath }}/{{ $.Values.tls.keyFile }}"
+              trustCertsFile: "{{ $.Values.tls.mountPath }}/{{ $.Values.tls.trustCertsFile }}"
+              clientAuth: {{ $.Values.tls.clientAuth }}
+            {{- end }}
+          {{- end }}
+        {{- else }}
         {{- if .Values.mqtt.tlsEnabled }}
         tlsListener:
           enable: true
@@ -32,17 +71,59 @@ data:
             clientAuth: {{ .Values.tls.clientAuth }}
           {{- end }}
         {{- end }}
+        {{- end }}
+        {{- if .Values.mqtt.wsListeners }}
+        wsListeners:
+          {{- range $listenerId, $listener := .Values.mqtt.wsListeners }}
+          {{ $listenerId }}:
+            enable: {{ default true $listener.enable }}
+            {{- with $listener.host }}
+            host: {{ . | quote }}
+            {{- end }}
+            port: {{ required (printf "mqtt.wsListeners.%s.port is required" $listenerId) $listener.port }}
+            wsPath: {{ default $.Values.mqtt.wsPath $listener.wsPath | quote }}
+            {{- with $listener.authProviderFQN }}
+            authProviderFQN: {{ . | quote }}
+            {{- end }}
+          {{- end }}
+        {{- else }}
         {{- if .Values.mqtt.wsEnabled }}
         wsListener:
           enable: true
           port: {{ .Values.mqtt.wsPort }}
           wsPath: {{ .Values.mqtt.wsPath | quote }}
         {{- end }}
+        {{- end }}
+        {{- if .Values.mqtt.wssListeners }}
+        wssListeners:
+          {{- range $listenerId, $listener := .Values.mqtt.wssListeners }}
+          {{ $listenerId }}:
+            enable: {{ default true $listener.enable }}
+            {{- with $listener.host }}
+            host: {{ . | quote }}
+            {{- end }}
+            port: {{ required (printf "mqtt.wssListeners.%s.port is required" $listenerId) $listener.port }}
+            wsPath: {{ default $.Values.mqtt.wssPath $listener.wsPath | quote }}
+            {{- with $listener.authProviderFQN }}
+            authProviderFQN: {{ . | quote }}
+            {{- end }}
+            {{- if $listener.sslConfig }}
+            sslConfig:
+              {{- toYaml $listener.sslConfig | nindent 14 }}
+            {{- else if $.Values.tls.certSecretName }}
+            sslConfig:
+              certFile: "{{ $.Values.tls.mountPath }}/{{ $.Values.tls.certFile }}"
+              keyFile: "{{ $.Values.tls.mountPath }}/{{ $.Values.tls.keyFile }}"
+              trustCertsFile: "{{ $.Values.tls.mountPath }}/{{ $.Values.tls.trustCertsFile }}"
+              clientAuth: {{ $.Values.tls.clientAuth }}
+            {{- end }}
+          {{- end }}
+        {{- else }}
         {{- if .Values.mqtt.wssEnabled }}
         wssListener:
           enable: true
           port: {{ .Values.mqtt.wssPort }}
-          wssPath: {{ .Values.mqtt.wssPath | quote }}
+          wsPath: {{ .Values.mqtt.wssPath | quote }}
           {{- if .Values.tls.certSecretName }}
           sslConfig:
             certFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.certFile }}"
@@ -51,6 +132,30 @@ data:
             clientAuth: {{ .Values.tls.clientAuth }}
           {{- end }}
         {{- end }}
+        {{- end }}
+        {{- if .Values.mqtt.quicListeners }}
+        quicListeners:
+          {{- range $listenerId, $listener := .Values.mqtt.quicListeners }}
+          {{ $listenerId }}:
+            enable: {{ default true $listener.enable }}
+            {{- with $listener.host }}
+            host: {{ . | quote }}
+            {{- end }}
+            port: {{ required (printf "mqtt.quicListeners.%s.port is required" $listenerId) $listener.port }}
+            {{- with $listener.authProviderFQN }}
+            authProviderFQN: {{ . | quote }}
+            {{- end }}
+            {{- if $listener.sslConfig }}
+            sslConfig:
+              {{- toYaml $listener.sslConfig | nindent 14 }}
+            {{- else if $.Values.tls.certSecretName }}
+            sslConfig:
+              certFile: "{{ $.Values.tls.mountPath }}/{{ $.Values.tls.certFile }}"
+              keyFile: "{{ $.Values.tls.mountPath }}/{{ $.Values.tls.keyFile }}"
+              clientAuth: {{ $.Values.tls.clientAuth }}
+            {{- end }}
+          {{- end }}
+        {{- else }}
         {{- if .Values.mqtt.quicEnabled }}
         quicListener:
           enable: true
@@ -61,6 +166,7 @@ data:
             keyFile: "{{ .Values.tls.mountPath }}/{{ .Values.tls.keyFile }}"
             clientAuth: {{ .Values.tls.clientAuth }}
           {{- end }}
+        {{- end }}
         {{- end }}
 
     {{- if .Values.apiServer.enabled }}

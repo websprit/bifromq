@@ -48,26 +48,40 @@ clusterConfig:
 mqtt:
   # -- MQTT TCP listener port
   tcpPort: 1883
+  # -- Named MQTT TCP listeners. When non-empty, replaces tcpPort in standalone.yml and exposes each port.
+  # tcpListeners:
+  #   edge:
+  #     port: 1883
+  #     authProviderFQN: ""
+  tcpListeners: {}
   # -- Enable MQTT over TLS
   tlsEnabled: false
   # -- MQTT TLS listener port
   tlsPort: 1884
+  # -- Named MQTT TLS listeners. When non-empty, replaces tlsEnabled/tlsPort in standalone.yml and exposes each port.
+  tlsListeners: {}
   # -- Enable MQTT over WebSocket
   wsEnabled: true
   # -- MQTT WebSocket listener port
   wsPort: 8080
   # -- WebSocket path
   wsPath: "/mqtt"
+  # -- Named MQTT WebSocket listeners. When non-empty, replaces wsEnabled/wsPort/wsPath in standalone.yml and exposes each port.
+  wsListeners: {}
   # -- Enable MQTT over WebSocket Secure (WSS)
   wssEnabled: false
   # -- MQTT WSS listener port
   wssPort: 8443
   # -- WSS path
   wssPath: "/mqtt"
+  # -- Named MQTT WSS listeners. When non-empty, replaces wssEnabled/wssPort/wssPath in standalone.yml and exposes each port.
+  wssListeners: {}
   # -- Enable MQTT over QUIC
   quicEnabled: true
   # -- MQTT QUIC listener port
   quicPort: 14567
+  # -- Named MQTT QUIC listeners. When non-empty, replaces quicEnabled/quicPort in standalone.yml and exposes each port.
+  quicListeners: {}
 
 # ============================================================
 # TLS Certificate Configuration

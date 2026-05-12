@@ -35,6 +35,8 @@ message MQTT5AuthData{
   string channelId = 7;
   bool responseInfo = 8; // for MQTT5 request/response use case
   commontype.UserProperties userProps = 9;
+  optional string listenerId = 10;
+  optional string transportType = 11;
 }
 
 message MQTT5ExtendedAuthData{

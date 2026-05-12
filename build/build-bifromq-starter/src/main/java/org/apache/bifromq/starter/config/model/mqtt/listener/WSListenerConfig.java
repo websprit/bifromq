@@ -29,4 +29,5 @@ public class WSListenerConfig {
     private String host;
     private int port = 8080;
     private String wsPath = "/mqtt";
+    private String authProviderFQN;
 }

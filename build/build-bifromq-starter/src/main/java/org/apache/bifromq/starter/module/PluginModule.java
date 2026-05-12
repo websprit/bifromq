@@ -22,6 +22,8 @@ package org.apache.bifromq.starter.module;
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
 import jakarta.inject.Singleton;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bifromq.inbox.client.IInboxClient;
 import org.apache.bifromq.mqtt.inbox.IMqttBrokerClient;
@@ -34,6 +36,7 @@ import org.apache.bifromq.plugin.settingprovider.SettingProviderManager;
 import org.apache.bifromq.plugin.subbroker.ISubBrokerManager;
 import org.apache.bifromq.plugin.subbroker.SubBrokerManager;
 import org.apache.bifromq.starter.config.StandaloneConfig;
+import org.apache.bifromq.starter.config.model.mqtt.MQTTServerConfig;
 import org.pf4j.PluginManager;
 
 @Slf4j
@@ -88,9 +91,45 @@ public class PluginModule extends AbstractModule {
         @Override
         public AuthProviderManager share() {
             return new AuthProviderManager(config.getAuthProviderFQN(),
+                listenerAuthProviderFQNs(config.getMqttServiceConfig().getServer()),
                 pluginManager,
                 settingProviderManager,
                 eventCollectorManager);
+        }
+
+        private Map<String, String> listenerAuthProviderFQNs(MQTTServerConfig serverConfig) {
+            Map<String, String> authProviderFQNs = new HashMap<>();
+            serverConfig.effectiveTcpListeners().forEach((listenerId, listener) -> {
+                if (listener.isEnable() && listener.getAuthProviderFQN() != null) {
+                    authProviderFQNs.put(AuthProviderManager.listenerKey("TCP", listenerId),
+                        listener.getAuthProviderFQN());
+                }
+            });
+            serverConfig.effectiveTlsListeners().forEach((listenerId, listener) -> {
+                if (listener.isEnable() && listener.getAuthProviderFQN() != null) {
+                    authProviderFQNs.put(AuthProviderManager.listenerKey("TLS", listenerId),
+                        listener.getAuthProviderFQN());
+                }
+            });
+            serverConfig.effectiveWsListeners().forEach((listenerId, listener) -> {
+                if (listener.isEnable() && listener.getAuthProviderFQN() != null) {
+                    authProviderFQNs.put(AuthProviderManager.listenerKey("WS", listenerId),
+                        listener.getAuthProviderFQN());
+                }
+            });
+            serverConfig.effectiveWssListeners().forEach((listenerId, listener) -> {
+                if (listener.isEnable() && listener.getAuthProviderFQN() != null) {
+                    authProviderFQNs.put(AuthProviderManager.listenerKey("WSS", listenerId),
+                        listener.getAuthProviderFQN());
+                }
+            });
+            serverConfig.effectiveQuicListeners().forEach((listenerId, listener) -> {
+                if (listener.isEnable() && listener.getAuthProviderFQN() != null) {
+                    authProviderFQNs.put(AuthProviderManager.listenerKey("QUIC", listenerId),
+                        listener.getAuthProviderFQN());
+                }
+            });
+            return authProviderFQNs;
         }
     }
 
@@ -141,7 +180,6 @@ public class PluginModule extends AbstractModule {
             this.config = config;
             this.pluginManager = pluginManager;
         }
-
 
         @Override
         public SettingProviderManager share() {

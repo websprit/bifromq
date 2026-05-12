@@ -30,6 +30,7 @@ public class QUICListenerConfig {
     private String host = "0.0.0.0";
     private int port = 14567;
     private ServerSSLContextConfig sslConfig;
+    private String authProviderFQN;
     // QUIC transport parameters
     private long maxIdleTimeoutMs = 30000;
     private long initialMaxData = 10000000;
